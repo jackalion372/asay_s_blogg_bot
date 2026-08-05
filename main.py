@@ -27,20 +27,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global memory to store dynamic Admin ID
-DYNAMIC_ADMIN_ID = ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "").strip()
+# Strict Admin Telegram ID
+EXACT_ADMIN_ID = "8100325700"
 
 
 def check_is_admin(user_id: str) -> bool:
-    """Checks whether the given user_id is the registered Admin/Owner."""
-    global DYNAMIC_ADMIN_ID
-
-    if not DYNAMIC_ADMIN_ID:
-        DYNAMIC_ADMIN_ID = str(user_id)
-        logger.info(f"Auto-registered dynamic Admin ID: {DYNAMIC_ADMIN_ID}")
-        return True
-
-    return str(user_id) == DYNAMIC_ADMIN_ID
+    """Checks strictly whether user_id matches the official Admin ID '8100325700'."""
+    uid = str(user_id).strip()
+    configured = (ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "")).strip()
+    return uid == EXACT_ADMIN_ID or uid == configured
 
 
 async def trigger_posting(slot: str = "morning"):
@@ -84,7 +79,7 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
 
     if is_admin:
         role_instruction = (
-            f"You are talking directly to {user_name}, the OWNER and ADMIN of the channel @asay_s_blogg. "
+            f"You are talking directly to {user_name}, the official OWNER and ADMIN of the channel @asay_s_blogg. "
             "Greet them with deep respect as the Channel Owner/Admin. "
             "You can discuss channel strategies, content ideas, post timings, and give full executive assistance."
         )
@@ -93,10 +88,11 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
             f"You are talking to {user_name}, a subscriber/guest of the channel @asay_s_blogg. "
             "ALWAYS greet them politely with: 'Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?' "
             "STRICT RULES FOR SUBSCRIBER INTERACTION:\n"
-            "1. NEVER hype or excessively praise the channel.\n"
-            "2. NEVER spam channel links or invite links.\n"
-            "3. NEVER reveal any channel internal plans, automation setup, technical tools, API models, creation dates, or admin secrets.\n"
-            "4. Be humble, quiet, polite, warm, and helpful. Answer their questions in whatever language they ask (multilingual: Uzbek, English, Russian, Arabic, etc.)."
+            "1. NEVER call them Admin or Owner. They are a regular subscriber/guest.\n"
+            "2. NEVER hype or excessively praise the channel.\n"
+            "3. NEVER spam channel links or invite links.\n"
+            "4. NEVER reveal any channel internal plans, automation setup, technical tools, API models, creation dates, or admin secrets.\n"
+            "5. Be humble, quiet, polite, warm, and helpful. Answer their questions in whatever language they ask."
         )
 
     system_instruction = (
@@ -142,7 +138,7 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles private messages from users, relays subscriber messages to Admin, and enforces strict privacy."""
+    """Handles private messages from users, relays subscriber messages to Admin ID 8100325700."""
     if not update.message or not update.message.text:
         return
 
@@ -158,8 +154,8 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_admin = check_is_admin(user_id)
 
-    # Relay subscriber messages directly to Admin
-    if not is_admin and DYNAMIC_ADMIN_ID:
+    # Relay subscriber messages directly to Admin ID 8100325700
+    if not is_admin:
         try:
             admin_notification = (
                 f"📩 <b>Obunachidan yangi xabar:</b>\n"
@@ -167,12 +163,12 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💬 <b>Xabar:</b> {user_text}"
             )
             await context.bot.send_message(
-                chat_id=DYNAMIC_ADMIN_ID,
+                chat_id=EXACT_ADMIN_ID,
                 text=admin_notification,
                 parse_mode="HTML"
             )
         except Exception as notify_err:
-            logger.warning(f"Could not relay message to admin: {notify_err}")
+            logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
     # Indicate bot is typing
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -196,7 +192,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"  • Ertalabki post: <b>09:00</b> ({POST_TIMEZONE})\n"
             f"  • Kechki post: <b>21:00</b> ({POST_TIMEZONE})\n\n"
             f"💬 Men sizning o'qilona yordamchingizman. Xohlagan savolingizni berishingiz mumkin.\n"
-            f"📩 Obunachilar botga yozgan barcha xabarlar avtomatik sizga yetkazib turiladi!"
+            f"📩 Obunachilar botga yozgan barcha xabarlar avtomatik sizga (ID: {EXACT_ADMIN_ID}) yetkazib turiladi!"
         )
     else:
         welcome_text = (
@@ -209,6 +205,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def post_morning_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /post_morning admin command."""
+    user_id = str(update.effective_user.id)
+    if not check_is_admin(user_id):
+        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?")
+        return
+
     await update.message.reply_text("⏳ Ertalabki post yaratilmoqda...")
     try:
         post_content = generate_daily_post(slot="morning")
@@ -224,6 +225,11 @@ async def post_morning_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def post_evening_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /post_evening admin command."""
+    user_id = str(update.effective_user.id)
+    if not check_is_admin(user_id):
+        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?")
+        return
+
     await update.message.reply_text("⏳ Kechki post yaratilmoqda...")
     try:
         post_content = generate_daily_post(slot="evening")
@@ -316,7 +322,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info("Bot starting with Clean Format & Zero Self-Praise/Links...")
+    logger.info(f"Bot starting with strict Admin ID filter: {EXACT_ADMIN_ID}...")
     application.run_polling()
 
 
