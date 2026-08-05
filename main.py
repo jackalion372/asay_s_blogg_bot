@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import random
 from datetime import datetime
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -129,7 +128,7 @@ async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
     system_instruction = (
         f"You are the executive RIGHT-HAND MANAGER and ASSISTANT for {user_name}, the OWNER and ADMIN of @asay_s_blogg channel.\n"
         "Your role: Help the admin draft posts, brainstorm high-value ideas, analyze channel strategy, organize schedules, and format quotes/hadiths.\n"
-        "Be highly intelligent, professional, respectful, wise, and executive in Uzbek. "
+        "STRICT STYLE RULES: DO NOT repeat repetitive greetings ('Assalomu alaykum') constantly. Speak directly, clearly, intelligently, and productively in Uzbek.\n"
         "Strictly NO modern psychology jargon, NO secular self-help terms. Always maintain authentic Islamic dignity."
     )
 
@@ -165,7 +164,7 @@ async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
         except Exception as e:
             logger.error(f"OpenAI Chat Error: {e}")
 
-    return "Assalomu alaykum, Hurmatli Admin! Qanday yordam bera olaman?"
+    return "Tushundim, Admin. Qanday yordam beray?"
 
 
 async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,7 +177,7 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
         target_user_id = data.replace("reply_user_", "")
         context.user_data["reply_target_user_id"] = target_user_id
         await query.edit_message_caption(
-            caption=query.message.caption + "\n\n✍️ <i>Ushbu obunachiga javob yozish uchun oddiy matn yuboring:</i>",
+            caption=query.message.caption + "\n\n✍️ <i>Javob matningizni yuboring:</i>",
             parse_mode="HTML"
         )
 
@@ -186,8 +185,8 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles private messages:
-    - If Admin: AI acts as Executive Right-Hand Manager (O'ng Qo'li va Menejer).
-    - If Subscriber: Auto-chat is DISABLED. Forwards message to Admin with reply button.
+    - If Admin: AI acts as Executive Right-Hand Manager (no repetitive greetings).
+    - If Subscriber: Relays message directly to Admin without any bot text or robotic prefixes.
     """
     if not update.message or not update.message.text:
         return
@@ -204,21 +203,21 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_admin = check_is_admin(user_id)
 
-    # If ADMIN is responding to a subscriber via reply session
+    # If ADMIN is responding to a subscriber via reply session -> send exact text with ZERO prefixes!
     if is_admin and "reply_target_user_id" in context.user_data:
         target_uid = context.user_data.pop("reply_target_user_id")
         try:
             await context.bot.send_message(
                 chat_id=target_uid,
-                text=f"Assalomu alaykum! Kanal ma'muriyati javobi:\n\n{user_text}"
+                text=user_text
             )
-            await update.message.reply_text("✅ Javobingiz obunachiga muvaffaqiyatli yetkazildi!")
+            await update.message.reply_text("✅ Yuborildi.")
             return
         except Exception as e:
-            await update.message.reply_text(f"❌ Obunachiga yuborishda xatolik: {e}")
+            await update.message.reply_text(f"❌ Xatolik: {e}")
             return
 
-    # FOR SUBSCRIBERS: Auto-AI chat is DISABLED. Purely relay message to Admin ID 8100325700
+    # FOR SUBSCRIBERS: Pure relay to Admin ID 8100325700. Zero robotic prefixes, zero bot text sent to subscriber.
     if not is_admin:
         WEEKLY_STATS["messages_received"] += 1
         try:
@@ -239,20 +238,17 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as notify_err:
             logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
-        # Send polite receipt to subscriber without any AI chat/answers
-        await update.message.reply_text(
-            "Assalomu alaykum! Xabaringiz qabul qilindi va kanal ma'muriyatiga yetkazildi."
-        )
+        # Completely silent receipt or no robotic text
         return
 
-    # FOR ADMIN (Siz): AI acts as Executive Right-Hand Manager (O'ng Qo'li)
+    # FOR ADMIN (Siz): AI acts as Executive Right-Hand Manager
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     ai_reply = await chat_with_admin_ai(user_prompt=user_text, user_name=user_name)
     await update.message.reply_text(ai_reply)
 
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Voice message handler."""
+    """Voice message handler with clean, zero robotic prefixes."""
     if not update.message or not update.message.voice:
         return
     
@@ -266,21 +262,19 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             admin_notification = (
                 f"🎤 <b>Obunachidan OVOZLI XABAR:</b>\n"
-                f"👤 <b>Kimdan:</b> {user_name} (@{username} / ID: <code>{user_id}</code>)\n"
-                f"📌 <i>Obunachining ovozli xabarini ko'rish uchun botga o'ting.</i>"
+                f"👤 <b>Kimdan:</b> {user_name} (@{username} / ID: <code>{user_id}</code>)"
             )
             await context.bot.send_message(chat_id=EXACT_ADMIN_ID, text=admin_notification, parse_mode="HTML")
             await context.bot.forward_message(chat_id=EXACT_ADMIN_ID, from_chat_id=update.effective_chat.id, message_id=update.message.message_id)
         except Exception as notify_err:
             logger.warning(f"Could not relay voice to admin: {notify_err}")
-
-        await update.message.reply_text("Assalomu alaykum! Ovozli xabaringiz qabul qilindi va kanal ma'muriyatiga yetkazildi.")
+        return
     else:
-        await update.message.reply_text("Assalomu alaykum, Hurmatli Admin! Ovozli xabaringiz qabul qilindi.")
+        await update.message.reply_text("Ovozli xabaringiz qabul qilindi, Admin.")
 
 
 async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command /reply <user_id> <message> to reply to any subscriber."""
+    """Admin command /reply <user_id> <message> to reply directly without prefixes."""
     user_id = str(update.effective_user.id)
     if not check_is_admin(user_id):
         return
@@ -296,9 +290,9 @@ async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(
             chat_id=target_uid,
-            text=f"Assalomu alaykum! Kanal ma'muriyati javobi:\n\n{reply_msg}"
+            text=reply_msg
         )
-        await update.message.reply_text("✅ Javobingiz obunachiga muvaffaqiyatli yetkazildi!")
+        await update.message.reply_text("✅ Yuborildi.")
     except Exception as e:
         await update.message.reply_text(f"❌ Xatolik: {e}")
 
@@ -311,20 +305,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if is_admin:
         welcome_text = (
-            f"Assalomu alaykum, Hurmatli Kanal Egasi / Admin ({user.first_name})!\n\n"
-            f"👑 <b>Men sizning shaxsiy O'ng Qo'lingiz va Menejeringizman!</b>\n\n"
+            f"👑 <b>O'ng Qo'lingiz va Menejeringiz faol, Admin {user.first_name}!</b>\n\n"
             f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
-            f"⏰ Schedule:\n"
-            f"  • Kunlik postlar: <b>09:00 & 21:00</b> ({POST_TIMEZONE})\n"
-            f"  • Juma Maxsus: <b>Juma 08:00</b>\n"
-            f"  • Haftalik Hisobot: <b>Yakshanba 20:00</b>\n\n"
-            f"💬 Menga istalgan savolingizni berishingiz, post g'oyalari va strategiyalarni aytishingiz mumkin.\n"
-            f"📩 Obunachilar botga yozgan barcha xabarlar avtomatik sizga tugma bilan yetkaziladi!"
+            f"⏰ Postlar: <b>09:00 & 21:00</b> | Juma Maxsus: <b>08:00</b>\n\n"
+            f"Menga istalgan savolingiz yoki kontent topshirig'ingizni yuborishingiz mumkin."
         )
     else:
         welcome_text = (
-            f"Assalomu alaykum! Men @asay_s_blogg kanali rasmiy botiman. "
-            f"Kanal ma'muriyatiga yozmoqchi bo'lgan xabaringizni yuborishingiz mumkin."
+            f"Xabaringizni yozishingiz mumkin."
         )
 
     await update.message.reply_text(welcome_text, parse_mode="HTML")
@@ -457,7 +445,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting as Admin's Right-Hand Manager & Relay Bridge...")
+    logger.info(f"Bot starting with Clean Direct Proxy & No Repetitive Greetings...")
     application.run_polling()
 
 
