@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # EXPANDED 100% SAHIH & PROFOUND LIFE WISDOM DATABASE
+# CLEAN FORMATTING: NO CHANNEL LINKS, NO SELF-PRAISE, NO NOISE.
 # ==============================================================================
 
 # ODD DAYS (Toq kunlar): Hayotdan olingan chuqur saboqlar va yuksak ma'noli hikmatlar
@@ -133,10 +134,7 @@ AUTHENTIC_SAHIH_POSTS = [
 
 def generate_daily_post(slot: str = "morning") -> str:
     """
-    Generates post based on Odd/Even days:
-    - Odd Days (Mon, Wed, Fri, Sun): Profound Life Wisdom & Lessons
-    - Even Days (Tue, Thu, Sat): 100% Authentic Sahih Hadiths & Quranic Verses
-    NO morning/evening text labels.
+    Generates post without any channel links, promo, or self-praise.
     """
     tz = pytz.timezone(POST_TIMEZONE)
     now = datetime.now(tz)
@@ -154,6 +152,7 @@ def generate_daily_post(slot: str = "morning") -> str:
 
     chosen = random.choice(pool)
 
+    # Clean post without any links or hype
     post_html = (
         f"{chosen['intro']}\n\n"
         f"<blockquote>{chosen['quote_arabic']}\n\n"
@@ -167,5 +166,5 @@ def generate_daily_post(slot: str = "morning") -> str:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    print("--- EXPANDED DATABASE POST TEST ---")
+    print("--- CLEAN POST TEST ---")
     print(generate_daily_post())

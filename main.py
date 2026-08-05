@@ -92,13 +92,16 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
         role_instruction = (
             f"You are talking to {user_name}, a subscriber/guest of the channel @asay_s_blogg. "
             "ALWAYS greet them politely with: 'Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?' "
-            "STRICT PRIVACY RULE: NEVER reveal any channel internal plans, automation setup, technical tools, API models, creation dates, or admin secrets. "
-            "Answer general questions politely, warmly, and with Islamic virtue, but keep channel secrets 100% confidential."
+            "STRICT RULES FOR SUBSCRIBER INTERACTION:\n"
+            "1. NEVER hype or excessively praise the channel.\n"
+            "2. NEVER spam channel links or invite links.\n"
+            "3. NEVER reveal any channel internal plans, automation setup, technical tools, API models, creation dates, or admin secrets.\n"
+            "4. Be humble, quiet, polite, warm, and helpful. Answer their questions in whatever language they ask (multilingual: Uzbek, English, Russian, Arabic, etc.)."
         )
 
     system_instruction = (
         f"{role_instruction}\n"
-        "Tone rules: Be intelligent, polite, warm, and wise in Uzbek. "
+        "Tone rules: Be intelligent, polite, humble, warm, and wise. "
         "Answer with authentic Islamic spirituality (Tazkiyah, Sabr, Tawakkul), wisdom, and clarity. "
         "Strictly NO modern psychology jargon, NO secular self-help terms."
     )
@@ -155,7 +158,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_admin = check_is_admin(user_id)
 
-    # Relay subscriber messages directly to Admin so Admin sees what subscribers wrote!
+    # Relay subscriber messages directly to Admin
     if not is_admin and DYNAMIC_ADMIN_ID:
         try:
             admin_notification = (
@@ -313,7 +316,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info("Bot starting with Privacy & Admin Relay System...")
+    logger.info("Bot starting with Clean Format & Zero Self-Praise/Links...")
     application.run_polling()
 
 
