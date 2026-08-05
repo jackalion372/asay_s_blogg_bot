@@ -62,16 +62,29 @@ async def keep_alive_ping():
             logger.debug(f"Self ping quiet note: {e}")
 
 
-async def chat_with_ai(user_prompt: str) -> str:
-    """Generates an AI response for direct user chat messages using free Groq API."""
+async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
+    """Generates an AI response tailored to whether the user is Admin or Subscriber."""
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
 
+    if is_admin:
+        role_instruction = (
+            f"You are talking directly to {user_name}, who is the OWNER and ADMIN of the channel @asay_s_blogg. "
+            "Address them respectfully as the Channel Owner/Admin (e.g. 'Assalomu alaykum, Hurmatli Kanal Egasi / Admin'). "
+            "Help them with channel ideas, answer their questions, and give them full control."
+        )
+    else:
+        role_instruction = (
+            f"You are talking to {user_name}, a respected SUBSCRIBER/GUEST of the channel @asay_s_blogg. "
+            "Greet them warmly and respectfully as a helpful, wise assistant."
+        )
+
     system_instruction = (
-        "You are the intelligent, polite, warm, and wise assistant of @asay_s_blogg. "
-        "Answer the user's questions in Uzbek (or the language they ask in) with deep respect, "
+        f"{role_instruction}\n"
+        "Tone rules: Be intelligent, polite, warm, and wise. "
+        "Answer in Uzbek (or the language they ask in) with deep respect, "
         "authentic Islamic spirituality (Tazkiyah, Sabr, Tawakkul), wisdom, and clarity. "
-        "Strictly NO modern psychology jargon, NO secular self-help terms. Keep answers clear, respectful, and helpful."
+        "Strictly NO modern psychology jargon, NO secular self-help terms."
     )
 
     if groq_key:
@@ -110,32 +123,46 @@ async def chat_with_ai(user_prompt: str) -> str:
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles private messages from users and replies using free AI."""
+    """Handles private messages from users and replies using free AI, recognizing Admin vs Subscriber."""
     if not update.message or not update.message.text:
         return
 
     user_text = update.message.text.strip()
     chat_type = update.effective_chat.type
 
-    # Only respond in private chats (not channels or groups)
+    # Only respond in private chats
     if chat_type != "private":
         return
+
+    user_id = str(update.effective_user.id)
+    user_name = update.effective_user.first_name or "Foydalanuvchi"
+
+    # Check if user is Admin
+    configured_admin = ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "").strip()
+    is_admin = bool(configured_admin and user_id == configured_admin)
 
     # Indicate bot is typing
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    ai_reply = await chat_with_ai(user_text)
+    ai_reply = await chat_with_ai(user_prompt=user_text, user_name=user_name, is_admin=is_admin)
     await update.message.reply_text(ai_reply)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /start command."""
     user = update.effective_user
+    user_id = str(user.id)
+    configured_admin = ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "").strip()
+    is_admin = bool(configured_admin and user_id == configured_admin)
+
+    admin_badge = "👑 <b>Kanal Egasi / Admin</b>" if is_admin else "👤 <b>Kanal Obunachisi</b>"
+
     welcome_text = (
-        f"Assalomu alaykum, {user.first_name}!\n\n"
+        f"Assalomu alaykum, {user.first_name}!\n"
+        f"Maqomingiz: {admin_badge}\n\n"
         f"🤖 Bot active: <b>@asay_s_blogg Telegram Automation System</b>\n\n"
         f"💬 Siz men bilan bemalol muloqot qilishingiz, savollaringizni berishingiz mumkin. "
-        f"Men sun'iy intellekt (Groq Llama-3.3 70B) yordamida har bir savolingizga hikmatli va samimiy javob beraman!\n\n"
+        f"Men sun'iy intellekt (Groq Llama-3.3 70B) yordamida javob beraman!\n\n"
         f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
         f"⏰ Schedule:\n"
         f"  • Ertalabki post: <b>09:00</b> ({POST_TIMEZONE})\n"
@@ -249,14 +276,14 @@ def main():
     application.add_handler(CommandHandler("post_morning", post_morning_command))
     application.add_handler(CommandHandler("post_evening", post_evening_command))
 
-    # Add Interactive AI Chat Handler (responds to all text messages in private chat)
+    # Add Interactive AI Chat Handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_chat))
 
     # Start HTTP web server in background before Telegram polling
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info("Bot starting with Interactive AI Chat and 2-post daily schedule...")
+    logger.info("Bot starting with Admin recognition & Interactive AI Chat...")
     application.run_polling()
 
 
