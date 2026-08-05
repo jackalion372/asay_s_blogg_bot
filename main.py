@@ -27,6 +27,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Global memory to store dynamically registered Admin ID if not hardcoded in .env
+DYNAMIC_ADMIN_ID = ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "").strip()
+
+
+def check_is_admin(user_id: str) -> bool:
+    """Checks whether the given user_id is the registered Admin/Owner."""
+    global DYNAMIC_ADMIN_ID
+
+    # If no admin registered yet, automatically register the first user as Admin!
+    if not DYNAMIC_ADMIN_ID:
+        DYNAMIC_ADMIN_ID = str(user_id)
+        logger.info(f"Auto-registered dynamic Admin ID: {DYNAMIC_ADMIN_ID}")
+        return True
+
+    return str(user_id) == DYNAMIC_ADMIN_ID
+
 
 async def trigger_posting(slot: str = "morning"):
     """Scheduled task function that creates and publishes a post for a specific slot ('morning' or 'evening')."""
@@ -130,16 +146,13 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text.strip()
     chat_type = update.effective_chat.type
 
-    # Only respond in private chats
     if chat_type != "private":
         return
 
     user_id = str(update.effective_user.id)
     user_name = update.effective_user.first_name or "Foydalanuvchi"
 
-    # Check if user is Admin
-    configured_admin = ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "").strip()
-    is_admin = bool(configured_admin and user_id == configured_admin)
+    is_admin = check_is_admin(user_id)
 
     # Indicate bot is typing
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -152,8 +165,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /start command."""
     user = update.effective_user
     user_id = str(user.id)
-    configured_admin = ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "").strip()
-    is_admin = bool(configured_admin and user_id == configured_admin)
+    is_admin = check_is_admin(user_id)
 
     admin_badge = "👑 <b>Kanal Egasi / Admin</b>" if is_admin else "👤 <b>Kanal Obunachisi</b>"
 
@@ -283,7 +295,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info("Bot starting with Admin recognition & Interactive AI Chat...")
+    logger.info("Bot starting with Automatic Admin Registration & Interactive AI Chat...")
     application.run_polling()
 
 
