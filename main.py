@@ -5,8 +5,15 @@ import random
 from datetime import datetime
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes,
+)
 from aiohttp import web
 import requests
 from openai import OpenAI
@@ -31,6 +38,12 @@ logger = logging.getLogger(__name__)
 # Strict Admin Telegram ID
 EXACT_ADMIN_ID = "8100325700"
 
+# Conversational Memory (User ID -> List of recent messages)
+USER_CONVERSATION_MEMORY = {}
+
+# Weekly interaction counter
+WEEKLY_STATS = {"posts_sent": 0, "messages_received": 0}
+
 
 def check_is_admin(user_id: str) -> bool:
     """Checks strictly whether user_id matches the official Admin ID '8100325700'."""
@@ -46,11 +59,50 @@ async def trigger_posting(slot: str = "morning"):
         post_content = generate_daily_post(slot=slot)
         success = await send_post_to_channel(post_content, attach_media=True)
         if success:
+            WEEKLY_STATS["posts_sent"] += 1
             logger.info(f"Daily {slot} post successfully created and published.")
         else:
             logger.error(f"Failed to publish {slot} post to channel.")
     except Exception as e:
         logger.error(f"Error during scheduled {slot} post generation/posting: {e}")
+
+
+async def trigger_friday_special():
+    """Special Friday Mubarak post at 08:00 AM every Friday."""
+    logger.info("Executing Friday Mubarak special post...")
+    friday_html = (
+        "<b>Juma Ayyomingiz Muborak Bo'lsin! ✨</b>\n\n"
+        "<blockquote>قال رسول الله ﷺ:\n"
+        "«أَكْثِرُوا عَلَيَّ مِنَ الصَّلاَةِ فِي يَوْمِ الْجُمُعَةِ وَلَيْلَةِ الْجُمُعَةِ فَمَنْ صَلَّى عَلَيَّ صَلاَةً صَلَّى اللَّهُ عَلَيْهِ عَشْرًا»\n\n"
+        "\"Send abundant blessings upon me on Friday and Friday night, for whoever sends one blessing upon me, Allah sends ten blessings upon him.\"\n\n"
+        "<b>[Sunan al-Bayhaqi #5790, Sahih]</b></blockquote>\n\n"
+        "<i>May your Friday be filled with light, peace, and acceptance of prayers.</i>"
+    )
+    try:
+        success = await send_post_to_channel(friday_html, attach_media=True)
+        if success:
+            WEEKLY_STATS["posts_sent"] += 1
+            logger.info("Friday Mubarak special post published.")
+    except Exception as e:
+        logger.error(f"Error publishing Friday special post: {e}")
+
+
+async def send_weekly_admin_summary(context: ContextTypes.DEFAULT_TYPE):
+    """Sends weekly stats summary to Admin every Sunday evening at 20:00."""
+    summary_text = (
+        f"📊 <b>Haftalik Boshqaruv Hisoboti:</b>\n\n"
+        f"📌 <b>Kanal:</b> <code>{CHANNEL_ID}</code>\n"
+        f"📝 <b>Chiqarilgan postlar:</b> {WEEKLY_STATS['posts_sent']} ta\n"
+        f"💬 <b>Obunachilar murojaati:</b> {WEEKLY_STATS['messages_received']} ta\n\n"
+        f"✅ Bot 24/7 bulutda barqaror va xavfsiz ishlamoqda."
+    )
+    try:
+        await context.bot.send_message(chat_id=EXACT_ADMIN_ID, text=summary_text, parse_mode="HTML")
+        # Reset counters for new week
+        WEEKLY_STATS["posts_sent"] = 0
+        WEEKLY_STATS["messages_received"] = 0
+    except Exception as e:
+        logger.error(f"Error sending weekly admin summary: {e}")
 
 
 async def health_check_handler(request):
@@ -73,10 +125,16 @@ async def keep_alive_ping():
             logger.debug(f"Self ping quiet note: {e}")
 
 
-async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
-    """Generates an AI response tailored strictly to Admin vs Subscriber privacy rules."""
+async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool, user_id: str) -> str:
+    """Generates an AI response tailored strictly to Admin vs Subscriber privacy rules with memory."""
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    # Retrieve conversational memory (last 4 turns)
+    history = USER_CONVERSATION_MEMORY.get(user_id, [])
+    memory_context = ""
+    if history:
+        memory_context = "Recent conversation memory:\n" + "\n".join(history[-4:]) + "\n"
 
     if is_admin:
         role_instruction = (
@@ -99,11 +157,13 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
 
     system_instruction = (
         f"{role_instruction}\n"
+        f"{memory_context}"
         "Tone rules: Be intelligent, polite, humble, warm, and wise. "
         "Answer with authentic Islamic spirituality (Tazkiyah, Sabr, Tawakkul), wisdom, and clarity. "
         "Strictly NO modern psychology jargon, NO secular self-help terms."
     )
 
+    response_text = ""
     if groq_key:
         try:
             client = OpenAI(api_key=groq_key, base_url="https://api.groq.com/openai/v1")
@@ -116,11 +176,11 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
                 temperature=0.7,
                 max_tokens=max_tokens_val,
             )
-            return response.choices[0].message.content.strip()
+            response_text = response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"Groq Chat Error: {e}")
 
-    if openai_key:
+    if not response_text and openai_key:
         try:
             client = OpenAI(api_key=openai_key)
             response = client.chat.completions.create(
@@ -132,15 +192,39 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
                 temperature=0.7,
                 max_tokens=max_tokens_val,
             )
-            return response.choices[0].message.content.strip()
+            response_text = response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"OpenAI Chat Error: {e}")
 
-    return "Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?"
+    if not response_text:
+        response_text = "Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?"
+
+    # Update conversation memory
+    if user_id not in USER_CONVERSATION_MEMORY:
+        USER_CONVERSATION_MEMORY[user_id] = []
+    USER_CONVERSATION_MEMORY[user_id].append(f"User: {user_prompt}")
+    USER_CONVERSATION_MEMORY[user_id].append(f"Assistant: {response_text}")
+
+    return response_text
+
+
+async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles inline button clicks for Admin to reply to subscribers directly."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if data.startswith("reply_user_"):
+        target_user_id = data.replace("reply_user_", "")
+        context.user_data["reply_target_user_id"] = target_user_id
+        await query.edit_message_caption(
+            caption=query.message.caption + "\n\n✍️ <i>Ushbu obunachiga javob yozish uchun oddiy matn yuboring:</i>",
+            parse_mode="HTML"
+        )
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles private messages from users, relays subscriber messages to Admin ID 8100325700."""
+    """Handles private messages from users, relays subscriber messages to Admin ID 8100325700 with reply button."""
     if not update.message or not update.message.text:
         return
 
@@ -156,9 +240,27 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_admin = check_is_admin(user_id)
 
-    # Relay subscriber messages directly to Admin ID 8100325700
-    if not is_admin:
+    # Check if Admin is responding to a subscriber via active target session
+    if is_admin and "reply_target_user_id" in context.user_data:
+        target_uid = context.user_data.pop("reply_target_user_id")
         try:
+            await context.bot.send_message(
+                chat_id=target_uid,
+                text=f"Assalomu alaykum! Kanal ma'muriyati javobi:\n\n{user_text}"
+            )
+            await update.message.reply_text("✅ Javobingiz obunachiga muvaffaqiyatli yetkazildi!")
+            return
+        except Exception as e:
+            await update.message.reply_text(f"❌ Obunachiga yuborishda xatolik: {e}")
+            return
+
+    # Relay subscriber messages directly to Admin ID 8100325700 with inline reply button
+    if not is_admin:
+        WEEKLY_STATS["messages_received"] += 1
+        try:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 Obunachiga Javob Yozish", callback_data=f"reply_user_{user_id}")]
+            ])
             admin_notification = (
                 f"📩 <b>Obunachidan yangi xabar:</b>\n"
                 f"👤 <b>Kimdan:</b> {user_name} (@{username} / ID: <code>{user_id}</code>)\n"
@@ -167,20 +269,65 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=EXACT_ADMIN_ID,
                 text=admin_notification,
+                reply_markup=keyboard,
                 parse_mode="HTML"
             )
         except Exception as notify_err:
             logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
-    # Indicate typing with human delay for subscribers to feel 100% natural
+    # Indicate typing with human delay for subscribers
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     if not is_admin:
         human_delay = random.uniform(2.2, 3.8)
         await asyncio.sleep(human_delay)
 
-    ai_reply = await chat_with_ai(user_prompt=user_text, user_name=user_name, is_admin=is_admin)
+    ai_reply = await chat_with_ai(user_prompt=user_text, user_name=user_name, is_admin=is_admin, user_id=user_id)
     await update.message.reply_text(ai_reply)
+
+
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Polite human handler for voice messages."""
+    if not update.message or not update.message.voice:
+        return
+    
+    user_id = str(update.effective_user.id)
+    is_admin = check_is_admin(user_id)
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await asyncio.sleep(2.0)
+
+    if is_admin:
+        await update.message.reply_text("Assalomu alaykum, Hurmatli Admin! Ovozli xabaringiz qabul qilindi.")
+    else:
+        await update.message.reply_text(
+            "Assalomu alaykum! Ovozli xabaringiz uchun rahmat. "
+            "Kanalimiz vakillari tez orada xabaringiz bilan tanishib chiqishadi."
+        )
+
+
+async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command /reply <user_id> <message> to reply to any subscriber."""
+    user_id = str(update.effective_user.id)
+    if not check_is_admin(user_id):
+        return
+
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Foydalanish: <code>/reply <user_id> <matn></code>", parse_mode="HTML")
+        return
+
+    target_uid = args[0]
+    reply_msg = " ".join(args[1:])
+
+    try:
+        await context.bot.send_message(
+            chat_id=target_uid,
+            text=f"Assalomu alaykum! Kanal ma'muriyati javobi:\n\n{reply_msg}"
+        )
+        await update.message.reply_text("✅ Javobingiz obunachiga muvaffaqiyatli yetkazildi!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Xatolik: {e}")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -192,13 +339,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         welcome_text = (
             f"Assalomu alaykum, Hurmatli Kanal Egasi / Admin ({user.first_name})!\n\n"
-            f"🤖 Status: <b>@asay_s_blogg Automation System Active</b>\n"
+            f"🤖 Status: <b>@asay_s_blogg Professional System Active</b>\n"
             f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
             f"⏰ Schedule:\n"
-            f"  • Ertalabki post: <b>09:00</b> ({POST_TIMEZONE})\n"
-            f"  • Kechki post: <b>21:00</b> ({POST_TIMEZONE})\n\n"
+            f"  • Kunlik postlar: <b>09:00 & 21:00</b> ({POST_TIMEZONE})\n"
+            f"  • Juma Maxsus: <b>Juma 08:00</b>\n"
+            f"  • Haftalik Hisobot: <b>Yakshanba 20:00</b>\n\n"
             f"💬 Men sizning o'qilona yordamchingizman. Xohlagan savolingizni berishingiz mumkin.\n"
-            f"📩 Obunachilar yozgan barcha xabarlar avtomatik sizga yetkazib turiladi!"
+            f"📩 Obunachilar yozgan xabarlar tugma bilan birga avtomatik sizga yetkaziladi!"
         )
     else:
         welcome_text = (
@@ -216,43 +364,24 @@ async def post_morning_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?")
         return
 
-    await update.message.reply_text("⏳ Ertalabki post yaratilmoqda...")
+    await update.message.reply_text("⏳ Post yaratilmoqda...")
     try:
         post_content = generate_daily_post(slot="morning")
-        await update.message.reply_text(f"📝 <b>Ertalabki Post:</b>\n\n{post_content}", parse_mode="HTML")
+        await update.message.reply_text(f"📝 <b>Post:</b>\n\n{post_content}", parse_mode="HTML")
         success = await send_post_to_channel(post_content, attach_media=True)
         if success:
-            await update.message.reply_text("✅ Ertalabki post kanalga muvaffaqiyatli joylashtirildi!")
+            await update.message.reply_text("✅ Post kanalga muvaffaqiyatli joylashtirildi!")
         else:
             await update.message.reply_text("❌ Kanalga yuborishda xatolik.")
     except Exception as e:
         await update.message.reply_text(f"❌ Xatolik: {e}")
 
 
-async def post_evening_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler for /post_evening admin command."""
-    user_id = str(update.effective_user.id)
-    if not check_is_admin(user_id):
-        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?")
-        return
-
-    await update.message.reply_text("⏳ Kechki post yaratilmoqda...")
-    try:
-        post_content = generate_daily_post(slot="evening")
-        await update.message.reply_text(f"📝 <b>Kechki Post:</b>\n\n{post_content}", parse_mode="HTML")
-        success = await send_post_to_channel(post_content, attach_media=True)
-        if success:
-            await update.message.reply_text("✅ Kechki post kanalga muvaffaqiyatli joylashtirildi!")
-        else:
-            await update.message.reply_text("❌ Kanalga yuborishda xatolik.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Xatolik: {e}")
-
-
-def setup_scheduler() -> AsyncIOScheduler:
-    """Sets up APScheduler for 2 daily posts: Morning (09:00) and Evening (21:00)."""
+def setup_scheduler(app_instance: Application) -> AsyncIOScheduler:
+    """Sets up APScheduler for daily posts, Friday special, and Sunday admin report."""
     scheduler = AsyncIOScheduler(timezone=pytz.timezone(POST_TIMEZONE))
 
+    # Daily Morning & Evening posts
     scheduler.add_job(
         trigger_posting,
         trigger="cron",
@@ -271,13 +400,34 @@ def setup_scheduler() -> AsyncIOScheduler:
         name="daily_evening_post",
     )
 
-    logger.info(f"Scheduler configured for 2 daily posts: 09:00 & 21:00 ({POST_TIMEZONE}).")
+    # Friday Mubarak Special Post (Every Friday at 08:00 AM)
+    scheduler.add_job(
+        trigger_friday_special,
+        trigger="cron",
+        day_of_week="fri",
+        hour=8,
+        minute=0,
+        name="friday_mubarak_special",
+    )
+
+    # Weekly Admin Summary (Every Sunday at 20:00 PM)
+    scheduler.add_job(
+        send_weekly_admin_summary,
+        trigger="cron",
+        day_of_week="sun",
+        hour=20,
+        minute=0,
+        kwargs={"context": ContextTypes.DEFAULT_TYPE(app_instance)},
+        name="weekly_admin_summary",
+    )
+
+    logger.info(f"Scheduler configured: 2 daily posts, Friday Special, and Sunday Admin Summary ({POST_TIMEZONE}).")
     return scheduler
 
 
 async def post_init(application: Application) -> None:
     """Post initialization hook to start APScheduler & Keep-Alive pinger inside running loop."""
-    scheduler = setup_scheduler()
+    scheduler = setup_scheduler(application)
     scheduler.start()
     asyncio.create_task(keep_alive_ping())
     logger.info("APScheduler and Keep-Alive pinger started successfully.")
@@ -319,16 +469,23 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("post_now", post_morning_command))
     application.add_handler(CommandHandler("post_morning", post_morning_command))
-    application.add_handler(CommandHandler("post_evening", post_evening_command))
+    application.add_handler(CommandHandler("post_evening", post_morning_command))
+    application.add_handler(CommandHandler("reply", reply_command))
 
-    # Add Interactive AI Chat Handler
+    # Callback Query Handler for Admin Reply Button
+    application.add_handler(CallbackQueryHandler(handle_admin_reply_button))
+
+    # Voice Message Handler
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
+
+    # Interactive Text Handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_chat))
 
     # Start HTTP web server in background before Telegram polling
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with Short & Natural Response Engine for Subscribers...")
+    logger.info(f"Bot starting with All 6 Professional Features & Admin ID {EXACT_ADMIN_ID}...")
     application.run_polling()
 
 
