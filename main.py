@@ -185,8 +185,8 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles private messages:
-    - If Admin: AI acts as Executive Right-Hand Manager (no repetitive greetings).
-    - If Subscriber: Relays message directly to Admin without any bot text or robotic prefixes.
+    - If Admin: AI acts as Executive Right-Hand Manager.
+    - If Subscriber: Relays message directly to Admin without any auto-bot text.
     """
     if not update.message or not update.message.text:
         return
@@ -217,7 +217,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Xatolik: {e}")
             return
 
-    # FOR SUBSCRIBERS: Pure relay to Admin ID 8100325700. Zero robotic prefixes, zero bot text sent to subscriber.
+    # FOR SUBSCRIBERS: Pure relay to Admin ID 8100325700. Zero auto-AI reply.
     if not is_admin:
         WEEKLY_STATS["messages_received"] += 1
         try:
@@ -238,7 +238,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as notify_err:
             logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
-        # Completely silent receipt or no robotic text
+        # Completely silent receipt - zero bot auto-answers
         return
 
     # FOR ADMIN (Siz): AI acts as Executive Right-Hand Manager
@@ -248,7 +248,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Voice message handler with clean, zero robotic prefixes."""
+    """Voice message handler."""
     if not update.message or not update.message.voice:
         return
     
@@ -312,7 +312,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         welcome_text = (
-            f"Xabaringizni yozishingiz mumkin."
+            "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
+            "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin."
         )
 
     await update.message.reply_text(welcome_text, parse_mode="HTML")
@@ -445,7 +446,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with Clean Direct Proxy & No Repetitive Greetings...")
+    logger.info(f"Bot starting with Official Intro Text...")
     application.run_polling()
 
 
