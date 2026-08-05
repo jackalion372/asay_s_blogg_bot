@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 # Strict Admin Telegram ID
 EXACT_ADMIN_ID = "8100325700"
 
+# Memory for last subscriber interaction so Admin never has to explain which user or text
+LAST_SUBSCRIBER_CONTEXT = {
+    "user_name": "",
+    "username": "",
+    "user_id": "",
+    "text": "",
+    "time": ""
+}
+
 # Weekly interaction counter
 WEEKLY_STATS = {"posts_sent": 0, "messages_received": 0}
 
@@ -121,14 +130,25 @@ async def keep_alive_ping():
 
 
 async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
-    """Generates executive assistance AI response exclusively for the Admin (O'ng qo'li / Menejeri)."""
+    """Generates executive assistance AI response exclusively for the Admin, knowing the latest subscriber message context."""
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
 
+    subscriber_info = ""
+    if LAST_SUBSCRIBER_CONTEXT["text"]:
+        subscriber_info = (
+            f"LATEST SUBSCRIBER MESSAGE CONTEXT:\n"
+            f"- Subscriber Name: {LAST_SUBSCRIBER_CONTEXT['user_name']} (@{LAST_SUBSCRIBER_CONTEXT['username']})\n"
+            f"- Message Text: \"{LAST_SUBSCRIBER_CONTEXT['text']}\"\n"
+            f"Note: You ALREADY know this message context. NEVER ask the admin 'which user?' or 'what did they write?'. "
+            f"If Admin asks how to reply, hesitates, or asks for advice, IMMEDIATELY offer 2-3 smart, executive, polite Uzbek reply options tailored to this message.\n"
+        )
+
     system_instruction = (
         f"You are the executive RIGHT-HAND MANAGER and ASSISTANT for {user_name}, the OWNER and ADMIN of @asay_s_blogg channel.\n"
-        "Your role: Help the admin draft posts, brainstorm high-value ideas, analyze channel strategy, organize schedules, and format quotes/hadiths.\n"
-        "STRICT STYLE RULES: DO NOT repeat repetitive greetings ('Assalomu alaykum') constantly. Speak directly, clearly, intelligently, and productively in Uzbek.\n"
+        f"{subscriber_info}\n"
+        "Your role: Help the admin draft replies, brainstorm high-value post ideas, analyze strategy, and format quotes/hadiths.\n"
+        "STRICT STYLE RULES: Never repeat repetitive greetings ('Assalomu alaykum') constantly. Speak directly, clearly, intelligently, and productively in Uzbek.\n"
         "Strictly NO modern psychology jargon, NO secular self-help terms. Always maintain authentic Islamic dignity."
     )
 
@@ -142,7 +162,7 @@ async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=600,
+                max_tokens=650,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -158,7 +178,7 @@ async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=600,
+                max_tokens=650,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -185,8 +205,8 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles private messages:
-    - If Admin: AI acts as Executive Right-Hand Manager.
-    - If Subscriber: Relays message directly to Admin without any auto-bot text.
+    - If Admin: AI acts as Executive Right-Hand Manager, remembering the latest subscriber context.
+    - If Subscriber: Remembers message context and relays to Admin without any auto-bot text.
     """
     if not update.message or not update.message.text:
         return
@@ -217,9 +237,17 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Xatolik: {e}")
             return
 
-    # FOR SUBSCRIBERS: Pure relay to Admin ID 8100325700. Zero auto-AI reply.
+    # FOR SUBSCRIBERS: Remember context & relay to Admin ID 8100325700. Zero auto-AI reply.
     if not is_admin:
         WEEKLY_STATS["messages_received"] += 1
+
+        # Save into Admin Memory automatically
+        LAST_SUBSCRIBER_CONTEXT["user_name"] = user_name
+        LAST_SUBSCRIBER_CONTEXT["username"] = username
+        LAST_SUBSCRIBER_CONTEXT["user_id"] = user_id
+        LAST_SUBSCRIBER_CONTEXT["text"] = user_text
+        LAST_SUBSCRIBER_CONTEXT["time"] = datetime.now().strftime("%H:%M")
+
         try:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("💬 Obunachiga Javob Yozish", callback_data=f"reply_user_{user_id}")]
@@ -238,10 +266,10 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as notify_err:
             logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
-        # Completely silent receipt - zero bot auto-answers
+        # Completely silent receipt
         return
 
-    # FOR ADMIN (Siz): AI acts as Executive Right-Hand Manager
+    # FOR ADMIN (Siz): AI acts as Executive Right-Hand Manager (already knows last subscriber context!)
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     ai_reply = await chat_with_admin_ai(user_prompt=user_text, user_name=user_name)
     await update.message.reply_text(ai_reply)
@@ -259,6 +287,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not is_admin:
         WEEKLY_STATS["messages_received"] += 1
+        LAST_SUBSCRIBER_CONTEXT["user_name"] = user_name
+        LAST_SUBSCRIBER_CONTEXT["username"] = username
+        LAST_SUBSCRIBER_CONTEXT["user_id"] = user_id
+        LAST_SUBSCRIBER_CONTEXT["text"] = "[Ovozli xabar yubordi]"
+        LAST_SUBSCRIBER_CONTEXT["time"] = datetime.now().strftime("%H:%M")
+
         try:
             admin_notification = (
                 f"🎤 <b>Obunachidan OVOZLI XABAR:</b>\n"
@@ -308,7 +342,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👑 <b>O'ng Qo'lingiz va Menejeringiz faol, Admin {user.first_name}!</b>\n\n"
             f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
             f"⏰ Postlar: <b>09:00 & 21:00</b> | Juma Maxsus: <b>08:00</b>\n\n"
-            f"Menga istalgan savolingiz yoki kontent topshirig'ingizni yuborishingiz mumkin."
+            f"Menga istalgan savolingiz yoki kontent topshirig'ingizni yuborishingiz mumkin.\n"
+            f"💡 Obunachi yozganda: 'Bunga nima deb javob bera olay?' desangiz, darhol 2-3 ta tayyor variant beraman!"
         )
     else:
         welcome_text = (
@@ -446,7 +481,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with Official Intro Text...")
+    logger.info(f"Bot starting with Subscriber Context Memory for Admin...")
     application.run_polling()
 
 
