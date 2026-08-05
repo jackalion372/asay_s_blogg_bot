@@ -38,9 +38,6 @@ logger = logging.getLogger(__name__)
 # Strict Admin Telegram ID
 EXACT_ADMIN_ID = "8100325700"
 
-# Conversational Memory (User ID -> List of recent messages)
-USER_CONVERSATION_MEMORY = {}
-
 # Weekly interaction counter
 WEEKLY_STATS = {"posts_sent": 0, "messages_received": 0}
 
@@ -98,7 +95,6 @@ async def send_weekly_admin_summary(context: ContextTypes.DEFAULT_TYPE):
     )
     try:
         await context.bot.send_message(chat_id=EXACT_ADMIN_ID, text=summary_text, parse_mode="HTML")
-        # Reset counters for new week
         WEEKLY_STATS["posts_sent"] = 0
         WEEKLY_STATS["messages_received"] = 0
     except Exception as e:
@@ -125,45 +121,18 @@ async def keep_alive_ping():
             logger.debug(f"Self ping quiet note: {e}")
 
 
-async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool, user_id: str) -> str:
-    """Generates an AI response tailored strictly to Admin vs Subscriber privacy rules with memory."""
+async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
+    """Generates executive assistance AI response exclusively for the Admin (O'ng qo'li / Menejeri)."""
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
 
-    # Retrieve conversational memory (last 4 turns)
-    history = USER_CONVERSATION_MEMORY.get(user_id, [])
-    memory_context = ""
-    if history:
-        memory_context = "Recent conversation memory:\n" + "\n".join(history[-4:]) + "\n"
-
-    if is_admin:
-        role_instruction = (
-            f"You are talking directly to {user_name}, the official OWNER and ADMIN of the channel @asay_s_blogg. "
-            "Greet them with deep respect as the Channel Owner/Admin. "
-            "You can discuss channel strategies, content ideas, post timings, and give full executive assistance."
-        )
-        max_tokens_val = 400
-    else:
-        role_instruction = (
-            f"You are talking to {user_name}, a subscriber of the channel @asay_s_blogg. "
-            "STRICT CONCISE HUMAN RESPONSE RULES:\n"
-            "1. KEEP RESPONSES SHORT, CONCISE, AND NATURAL (2 TO 4 SENTENCES MAXIMUM). NEVER WRITE LONG WALLS OF TEXT OR ESSAYS.\n"
-            "2. NEVER use words like 'bot', 'AI', 'sun'iy intellekt', 'dastur', or 'avtomatlashtirilgan'.\n"
-            "3. Present yourself naturally as a human representative of the @asay_s_blogg team.\n"
-            "4. NEVER reveal channel internal plans, technical setup, creation dates, or admin secrets.\n"
-            "5. Explain the answer clearly, warmly, and wisely, but keep it brief like a real human Telegram message."
-        )
-        max_tokens_val = 180
-
     system_instruction = (
-        f"{role_instruction}\n"
-        f"{memory_context}"
-        "Tone rules: Be intelligent, polite, humble, warm, and wise. "
-        "Answer with authentic Islamic spirituality (Tazkiyah, Sabr, Tawakkul), wisdom, and clarity. "
-        "Strictly NO modern psychology jargon, NO secular self-help terms."
+        f"You are the executive RIGHT-HAND MANAGER and ASSISTANT for {user_name}, the OWNER and ADMIN of @asay_s_blogg channel.\n"
+        "Your role: Help the admin draft posts, brainstorm high-value ideas, analyze channel strategy, organize schedules, and format quotes/hadiths.\n"
+        "Be highly intelligent, professional, respectful, wise, and executive in Uzbek. "
+        "Strictly NO modern psychology jargon, NO secular self-help terms. Always maintain authentic Islamic dignity."
     )
 
-    response_text = ""
     if groq_key:
         try:
             client = OpenAI(api_key=groq_key, base_url="https://api.groq.com/openai/v1")
@@ -174,13 +143,13 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool, user_id
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=max_tokens_val,
+                max_tokens=600,
             )
-            response_text = response.choices[0].message.content.strip()
+            return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"Groq Chat Error: {e}")
 
-    if not response_text and openai_key:
+    if openai_key:
         try:
             client = OpenAI(api_key=openai_key)
             response = client.chat.completions.create(
@@ -190,22 +159,13 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool, user_id
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=max_tokens_val,
+                max_tokens=600,
             )
-            response_text = response.choices[0].message.content.strip()
+            return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"OpenAI Chat Error: {e}")
 
-    if not response_text:
-        response_text = "Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?"
-
-    # Update conversation memory
-    if user_id not in USER_CONVERSATION_MEMORY:
-        USER_CONVERSATION_MEMORY[user_id] = []
-    USER_CONVERSATION_MEMORY[user_id].append(f"User: {user_prompt}")
-    USER_CONVERSATION_MEMORY[user_id].append(f"Assistant: {response_text}")
-
-    return response_text
+    return "Assalomu alaykum, Hurmatli Admin! Qanday yordam bera olaman?"
 
 
 async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -224,7 +184,11 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles private messages from users, relays subscriber messages to Admin ID 8100325700 with reply button."""
+    """
+    Handles private messages:
+    - If Admin: AI acts as Executive Right-Hand Manager (O'ng Qo'li va Menejer).
+    - If Subscriber: Auto-chat is DISABLED. Forwards message to Admin with reply button.
+    """
     if not update.message or not update.message.text:
         return
 
@@ -240,7 +204,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_admin = check_is_admin(user_id)
 
-    # Check if Admin is responding to a subscriber via active target session
+    # If ADMIN is responding to a subscriber via reply session
     if is_admin and "reply_target_user_id" in context.user_data:
         target_uid = context.user_data.pop("reply_target_user_id")
         try:
@@ -254,7 +218,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Obunachiga yuborishda xatolik: {e}")
             return
 
-    # Relay subscriber messages directly to Admin ID 8100325700 with inline reply button
+    # FOR SUBSCRIBERS: Auto-AI chat is DISABLED. Purely relay message to Admin ID 8100325700
     if not is_admin:
         WEEKLY_STATS["messages_received"] += 1
         try:
@@ -275,35 +239,44 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as notify_err:
             logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
-    # Indicate typing with human delay for subscribers
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    
-    if not is_admin:
-        human_delay = random.uniform(2.2, 3.8)
-        await asyncio.sleep(human_delay)
+        # Send polite receipt to subscriber without any AI chat/answers
+        await update.message.reply_text(
+            "Assalomu alaykum! Xabaringiz qabul qilindi va kanal ma'muriyatiga yetkazildi."
+        )
+        return
 
-    ai_reply = await chat_with_ai(user_prompt=user_text, user_name=user_name, is_admin=is_admin, user_id=user_id)
+    # FOR ADMIN (Siz): AI acts as Executive Right-Hand Manager (O'ng Qo'li)
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    ai_reply = await chat_with_admin_ai(user_prompt=user_text, user_name=user_name)
     await update.message.reply_text(ai_reply)
 
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Polite human handler for voice messages."""
+    """Voice message handler."""
     if not update.message or not update.message.voice:
         return
     
     user_id = str(update.effective_user.id)
+    user_name = update.effective_user.first_name or "Foydalanuvchi"
+    username = update.effective_user.username or "username_yoq"
     is_admin = check_is_admin(user_id)
 
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    await asyncio.sleep(2.0)
+    if not is_admin:
+        WEEKLY_STATS["messages_received"] += 1
+        try:
+            admin_notification = (
+                f"🎤 <b>Obunachidan OVOZLI XABAR:</b>\n"
+                f"👤 <b>Kimdan:</b> {user_name} (@{username} / ID: <code>{user_id}</code>)\n"
+                f"📌 <i>Obunachining ovozli xabarini ko'rish uchun botga o'ting.</i>"
+            )
+            await context.bot.send_message(chat_id=EXACT_ADMIN_ID, text=admin_notification, parse_mode="HTML")
+            await context.bot.forward_message(chat_id=EXACT_ADMIN_ID, from_chat_id=update.effective_chat.id, message_id=update.message.message_id)
+        except Exception as notify_err:
+            logger.warning(f"Could not relay voice to admin: {notify_err}")
 
-    if is_admin:
-        await update.message.reply_text("Assalomu alaykum, Hurmatli Admin! Ovozli xabaringiz qabul qilindi.")
+        await update.message.reply_text("Assalomu alaykum! Ovozli xabaringiz qabul qilindi va kanal ma'muriyatiga yetkazildi.")
     else:
-        await update.message.reply_text(
-            "Assalomu alaykum! Ovozli xabaringiz uchun rahmat. "
-            "Kanalimiz vakillari tez orada xabaringiz bilan tanishib chiqishadi."
-        )
+        await update.message.reply_text("Assalomu alaykum, Hurmatli Admin! Ovozli xabaringiz qabul qilindi.")
 
 
 async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -339,19 +312,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         welcome_text = (
             f"Assalomu alaykum, Hurmatli Kanal Egasi / Admin ({user.first_name})!\n\n"
-            f"🤖 Status: <b>@asay_s_blogg Professional System Active</b>\n"
+            f"👑 <b>Men sizning shaxsiy O'ng Qo'lingiz va Menejeringizman!</b>\n\n"
             f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
             f"⏰ Schedule:\n"
             f"  • Kunlik postlar: <b>09:00 & 21:00</b> ({POST_TIMEZONE})\n"
             f"  • Juma Maxsus: <b>Juma 08:00</b>\n"
             f"  • Haftalik Hisobot: <b>Yakshanba 20:00</b>\n\n"
-            f"💬 Men sizning o'qilona yordamchingizman. Xohlagan savolingizni berishingiz mumkin.\n"
-            f"📩 Obunachilar yozgan xabarlar tugma bilan birga avtomatik sizga yetkaziladi!"
+            f"💬 Menga istalgan savolingizni berishingiz, post g'oyalari va strategiyalarni aytishingiz mumkin.\n"
+            f"📩 Obunachilar botga yozgan barcha xabarlar avtomatik sizga tugma bilan yetkaziladi!"
         )
     else:
         welcome_text = (
-            f"Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. "
-            f"Sizga qanday yordam bera olaman?"
+            f"Assalomu alaykum! Men @asay_s_blogg kanali rasmiy botiman. "
+            f"Kanal ma'muriyatiga yozmoqchi bo'lgan xabaringizni yuborishingiz mumkin."
         )
 
     await update.message.reply_text(welcome_text, parse_mode="HTML")
@@ -361,7 +334,6 @@ async def post_morning_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handler for /post_morning admin command."""
     user_id = str(update.effective_user.id)
     if not check_is_admin(user_id):
-        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?")
         return
 
     await update.message.reply_text("⏳ Post yaratilmoqda...")
@@ -485,7 +457,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with All 6 Professional Features & Admin ID {EXACT_ADMIN_ID}...")
+    logger.info(f"Bot starting as Admin's Right-Hand Manager & Relay Bridge...")
     application.run_polling()
 
 
