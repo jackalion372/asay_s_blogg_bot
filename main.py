@@ -5,9 +5,10 @@ from datetime import datetime
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from aiohttp import web
 import requests
+from openai import OpenAI
 
 from config import (
     BOT_TOKEN,
@@ -61,19 +62,84 @@ async def keep_alive_ping():
             logger.debug(f"Self ping quiet note: {e}")
 
 
+async def chat_with_ai(user_prompt: str) -> str:
+    """Generates an AI response for direct user chat messages using free Groq API."""
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    system_instruction = (
+        "You are the intelligent, polite, warm, and wise assistant of @asay_s_blogg. "
+        "Answer the user's questions in Uzbek (or the language they ask in) with deep respect, "
+        "authentic Islamic spirituality (Tazkiyah, Sabr, Tawakkul), wisdom, and clarity. "
+        "Strictly NO modern psychology jargon, NO secular self-help terms. Keep answers clear, respectful, and helpful."
+    )
+
+    if groq_key:
+        try:
+            client = OpenAI(api_key=groq_key, base_url="https://api.groq.com/openai/v1")
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.7,
+                max_tokens=500,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Groq Chat Error: {e}")
+
+    if openai_key:
+        try:
+            client = OpenAI(api_key=openai_key)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.7,
+                max_tokens=500,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"OpenAI Chat Error: {e}")
+
+    return "Kechirasiz, hozirda javob berishda texnik xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring."
+
+
+async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles private messages from users and replies using free AI."""
+    if not update.message or not update.message.text:
+        return
+
+    user_text = update.message.text.strip()
+    chat_type = update.effective_chat.type
+
+    # Only respond in private chats (not channels or groups)
+    if chat_type != "private":
+        return
+
+    # Indicate bot is typing
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    ai_reply = await chat_with_ai(user_text)
+    await update.message.reply_text(ai_reply)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /start command."""
     user = update.effective_user
     welcome_text = (
         f"Assalomu alaykum, {user.first_name}!\n\n"
         f"🤖 Bot active: <b>@asay_s_blogg Telegram Automation System</b>\n\n"
+        f"💬 Siz men bilan bemalol muloqot qilishingiz, savollaringizni berishingiz mumkin. "
+        f"Men sun'iy intellekt (Groq Llama-3.3 70B) yordamida har bir savolingizga hikmatli va samimiy javob beraman!\n\n"
         f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
         f"⏰ Schedule:\n"
         f"  • Ertalabki post: <b>09:00</b> ({POST_TIMEZONE})\n"
         f"  • Kechki post: <b>21:00</b> ({POST_TIMEZONE})\n\n"
-        f"📅 Kunlar tartibi:\n"
-        f"  • <b>Toq kunlar (Dush, Chor, Jum, Yak)</b>: Sof Islomiy Ma'rifat\n"
-        f"  • <b>Juft kunlar (Ses, Pay, Shan)</b>: Insoniy samimiyat, Quvonch & Sokinlik\n\n"
         f"Commands:\n"
         f"/post_morning — Test morning post immediately\n"
         f"/post_evening — Test evening post immediately"
@@ -183,11 +249,14 @@ def main():
     application.add_handler(CommandHandler("post_morning", post_morning_command))
     application.add_handler(CommandHandler("post_evening", post_evening_command))
 
+    # Add Interactive AI Chat Handler (responds to all text messages in private chat)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_chat))
+
     # Start HTTP web server in background before Telegram polling
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info("Bot starting with HTTP Web Server and 2-post daily schedule...")
+    logger.info("Bot starting with Interactive AI Chat and 2-post daily schedule...")
     application.run_polling()
 
 
