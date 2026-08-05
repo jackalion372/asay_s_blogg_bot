@@ -84,16 +84,18 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
             "Greet them with deep respect as the Channel Owner/Admin. "
             "You can discuss channel strategies, content ideas, post timings, and give full executive assistance."
         )
+        max_tokens_val = 400
     else:
         role_instruction = (
             f"You are talking to {user_name}, a subscriber of the channel @asay_s_blogg. "
-            "STRICT HUMAN PERCEPTION RULES:\n"
-            "1. NEVER use words like 'bot', 'AI', 'sun'iy intellekt', 'dastur', or 'avtomatlashtirilgan'.\n"
-            "2. Present yourself naturally as a human representative of the @asay_s_blogg team.\n"
-            "3. Greet them warmly and naturally: 'Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?'\n"
+            "STRICT CONCISE HUMAN RESPONSE RULES:\n"
+            "1. KEEP RESPONSES SHORT, CONCISE, AND NATURAL (2 TO 4 SENTENCES MAXIMUM). NEVER WRITE LONG WALLS OF TEXT OR ESSAYS.\n"
+            "2. NEVER use words like 'bot', 'AI', 'sun'iy intellekt', 'dastur', or 'avtomatlashtirilgan'.\n"
+            "3. Present yourself naturally as a human representative of the @asay_s_blogg team.\n"
             "4. NEVER reveal channel internal plans, technical setup, creation dates, or admin secrets.\n"
-            "5. Be humble, quiet, polite, warm, and helpful. Answer their questions naturally in whatever language they ask."
+            "5. Explain the answer clearly, warmly, and wisely, but keep it brief like a real human Telegram message."
         )
+        max_tokens_val = 180
 
     system_instruction = (
         f"{role_instruction}\n"
@@ -112,7 +114,7 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=max_tokens_val,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -128,7 +130,7 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=max_tokens_val,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -174,7 +176,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
     if not is_admin:
-        human_delay = random.uniform(2.5, 4.2)
+        human_delay = random.uniform(2.2, 3.8)
         await asyncio.sleep(human_delay)
 
     ai_reply = await chat_with_ai(user_prompt=user_text, user_name=user_name, is_admin=is_admin)
@@ -326,7 +328,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with Human Perception Engine & Admin ID {EXACT_ADMIN_ID}...")
+    logger.info(f"Bot starting with Short & Natural Response Engine for Subscribers...")
     application.run_polling()
 
 
