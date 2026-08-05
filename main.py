@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import os
 from datetime import datetime
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from aiohttp import web
+import requests
 
 from config import (
     BOT_TOKEN,
@@ -36,6 +39,26 @@ async def trigger_posting(slot: str = "morning"):
             logger.error(f"Failed to publish {slot} post to channel.")
     except Exception as e:
         logger.error(f"Error during scheduled {slot} post generation/posting: {e}")
+
+
+async def health_check_handler(request):
+    """HTTP Health Check endpoint for Render web service."""
+    return web.Response(text="Bot is healthy and running 24/7!")
+
+
+async def keep_alive_ping():
+    """Background task to self-ping Render web service to prevent free-tier sleeping."""
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip()
+    if not render_url:
+        render_url = "https://asay-s-blogg-bot.onrender.com"
+
+    while True:
+        await asyncio.sleep(600)  # Ping every 10 minutes
+        try:
+            logger.info(f"Pinging web server to stay awake: {render_url}")
+            requests.get(render_url, timeout=10)
+        except Exception as e:
+            logger.debug(f"Self ping quiet note: {e}")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -115,10 +138,25 @@ def setup_scheduler() -> AsyncIOScheduler:
 
 
 async def post_init(application: Application) -> None:
-    """Post initialization hook to start APScheduler inside the active asyncio loop."""
+    """Post initialization hook to start APScheduler & Keep-Alive pinger inside running loop."""
     scheduler = setup_scheduler()
     scheduler.start()
-    logger.info("APScheduler started successfully inside running event loop.")
+    asyncio.create_task(keep_alive_ping())
+    logger.info("APScheduler and Keep-Alive pinger started successfully.")
+
+
+async def start_web_server():
+    """Starts a lightweight HTTP web server for Render PORT binding."""
+    app = web.Application()
+    app.router.add_get('/', health_check_handler)
+    app.router.add_get('/health', health_check_handler)
+
+    port = int(os.getenv("PORT", 10000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"HTTP Web server running on port {port}.")
 
 
 def main():
@@ -145,7 +183,11 @@ def main():
     application.add_handler(CommandHandler("post_morning", post_morning_command))
     application.add_handler(CommandHandler("post_evening", post_evening_command))
 
-    logger.info("Bot starting with 2-post daily schedule... Press Ctrl+C to stop.")
+    # Start HTTP web server in background before Telegram polling
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_web_server())
+
+    logger.info("Bot starting with HTTP Web Server and 2-post daily schedule...")
     application.run_polling()
 
 
