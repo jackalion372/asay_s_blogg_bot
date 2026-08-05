@@ -27,7 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global memory to store dynamically registered Admin ID if not hardcoded in .env
+# Global memory to store dynamic Admin ID
 DYNAMIC_ADMIN_ID = ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "").strip()
 
 
@@ -35,7 +35,6 @@ def check_is_admin(user_id: str) -> bool:
     """Checks whether the given user_id is the registered Admin/Owner."""
     global DYNAMIC_ADMIN_ID
 
-    # If no admin registered yet, automatically register the first user as Admin!
     if not DYNAMIC_ADMIN_ID:
         DYNAMIC_ADMIN_ID = str(user_id)
         logger.info(f"Auto-registered dynamic Admin ID: {DYNAMIC_ADMIN_ID}")
@@ -79,27 +78,28 @@ async def keep_alive_ping():
 
 
 async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
-    """Generates an AI response tailored to whether the user is Admin or Subscriber."""
+    """Generates an AI response tailored strictly to Admin vs Subscriber privacy rules."""
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
 
     if is_admin:
         role_instruction = (
-            f"You are talking directly to {user_name}, who is the OWNER and ADMIN of the channel @asay_s_blogg. "
-            "Address them respectfully as the Channel Owner/Admin (e.g. 'Assalomu alaykum, Hurmatli Kanal Egasi / Admin'). "
-            "Help them with channel ideas, answer their questions, and give them full control."
+            f"You are talking directly to {user_name}, the OWNER and ADMIN of the channel @asay_s_blogg. "
+            "Greet them with deep respect as the Channel Owner/Admin. "
+            "You can discuss channel strategies, content ideas, post timings, and give full executive assistance."
         )
     else:
         role_instruction = (
-            f"You are talking to {user_name}, a respected SUBSCRIBER/GUEST of the channel @asay_s_blogg. "
-            "Greet them warmly and respectfully as a helpful, wise assistant."
+            f"You are talking to {user_name}, a subscriber/guest of the channel @asay_s_blogg. "
+            "ALWAYS greet them politely with: 'Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?' "
+            "STRICT PRIVACY RULE: NEVER reveal any channel internal plans, automation setup, technical tools, API models, creation dates, or admin secrets. "
+            "Answer general questions politely, warmly, and with Islamic virtue, but keep channel secrets 100% confidential."
         )
 
     system_instruction = (
         f"{role_instruction}\n"
-        "Tone rules: Be intelligent, polite, warm, and wise. "
-        "Answer in Uzbek (or the language they ask in) with deep respect, "
-        "authentic Islamic spirituality (Tazkiyah, Sabr, Tawakkul), wisdom, and clarity. "
+        "Tone rules: Be intelligent, polite, warm, and wise in Uzbek. "
+        "Answer with authentic Islamic spirituality (Tazkiyah, Sabr, Tawakkul), wisdom, and clarity. "
         "Strictly NO modern psychology jargon, NO secular self-help terms."
     )
 
@@ -135,11 +135,11 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
         except Exception as e:
             logger.error(f"OpenAI Chat Error: {e}")
 
-    return "Kechirasiz, hozirda javob berishda texnik xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring."
+    return "Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?"
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles private messages from users and replies using free AI, recognizing Admin vs Subscriber."""
+    """Handles private messages from users, relays subscriber messages to Admin, and enforces strict privacy."""
     if not update.message or not update.message.text:
         return
 
@@ -151,8 +151,25 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
     user_name = update.effective_user.first_name or "Foydalanuvchi"
+    username = update.effective_user.username or "username_yoq"
 
     is_admin = check_is_admin(user_id)
+
+    # Relay subscriber messages directly to Admin so Admin sees what subscribers wrote!
+    if not is_admin and DYNAMIC_ADMIN_ID:
+        try:
+            admin_notification = (
+                f"📩 <b>Obunachidan yangi xabar:</b>\n"
+                f"👤 <b>Kimdan:</b> {user_name} (@{username} / ID: <code>{user_id}</code>)\n"
+                f"💬 <b>Xabar:</b> {user_text}"
+            )
+            await context.bot.send_message(
+                chat_id=DYNAMIC_ADMIN_ID,
+                text=admin_notification,
+                parse_mode="HTML"
+            )
+        except Exception as notify_err:
+            logger.warning(f"Could not relay message to admin: {notify_err}")
 
     # Indicate bot is typing
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -167,22 +184,23 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(user.id)
     is_admin = check_is_admin(user_id)
 
-    admin_badge = "👑 <b>Kanal Egasi / Admin</b>" if is_admin else "👤 <b>Kanal Obunachisi</b>"
+    if is_admin:
+        welcome_text = (
+            f"Assalomu alaykum, Hurmatli Kanal Egasi / Admin ({user.first_name})!\n\n"
+            f"🤖 Bot active: <b>@asay_s_blogg Telegram Automation System</b>\n"
+            f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
+            f"⏰ Schedule:\n"
+            f"  • Ertalabki post: <b>09:00</b> ({POST_TIMEZONE})\n"
+            f"  • Kechki post: <b>21:00</b> ({POST_TIMEZONE})\n\n"
+            f"💬 Men sizning o'qilona yordamchingizman. Xohlagan savolingizni berishingiz mumkin.\n"
+            f"📩 Obunachilar botga yozgan barcha xabarlar avtomatik sizga yetkazib turiladi!"
+        )
+    else:
+        welcome_text = (
+            f"Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. "
+            f"Sizga qanday yordam bera olaman?"
+        )
 
-    welcome_text = (
-        f"Assalomu alaykum, {user.first_name}!\n"
-        f"Maqomingiz: {admin_badge}\n\n"
-        f"🤖 Bot active: <b>@asay_s_blogg Telegram Automation System</b>\n\n"
-        f"💬 Siz men bilan bemalol muloqot qilishingiz, savollaringizni berishingiz mumkin. "
-        f"Men sun'iy intellekt (Groq Llama-3.3 70B) yordamida javob beraman!\n\n"
-        f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
-        f"⏰ Schedule:\n"
-        f"  • Ertalabki post: <b>09:00</b> ({POST_TIMEZONE})\n"
-        f"  • Kechki post: <b>21:00</b> ({POST_TIMEZONE})\n\n"
-        f"Commands:\n"
-        f"/post_morning — Test morning post immediately\n"
-        f"/post_evening — Test evening post immediately"
-    )
     await update.message.reply_text(welcome_text, parse_mode="HTML")
 
 
@@ -295,7 +313,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info("Bot starting with Automatic Admin Registration & Interactive AI Chat...")
+    logger.info("Bot starting with Privacy & Admin Relay System...")
     application.run_polling()
 
 
