@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 from datetime import datetime
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -85,14 +86,13 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
         )
     else:
         role_instruction = (
-            f"You are talking to {user_name}, a subscriber/guest of the channel @asay_s_blogg. "
-            "ALWAYS greet them politely with: 'Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?' "
-            "STRICT RULES FOR SUBSCRIBER INTERACTION:\n"
-            "1. NEVER call them Admin or Owner. They are a regular subscriber/guest.\n"
-            "2. NEVER hype or excessively praise the channel.\n"
-            "3. NEVER spam channel links or invite links.\n"
-            "4. NEVER reveal any channel internal plans, automation setup, technical tools, API models, creation dates, or admin secrets.\n"
-            "5. Be humble, quiet, polite, warm, and helpful. Answer their questions in whatever language they ask."
+            f"You are talking to {user_name}, a subscriber of the channel @asay_s_blogg. "
+            "STRICT HUMAN PERCEPTION RULES:\n"
+            "1. NEVER use words like 'bot', 'AI', 'sun'iy intellekt', 'dastur', or 'avtomatlashtirilgan'.\n"
+            "2. Present yourself naturally as a human representative of the @asay_s_blogg team.\n"
+            "3. Greet them warmly and naturally: 'Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?'\n"
+            "4. NEVER reveal channel internal plans, technical setup, creation dates, or admin secrets.\n"
+            "5. Be humble, quiet, polite, warm, and helpful. Answer their questions naturally in whatever language they ask."
         )
 
     system_instruction = (
@@ -134,7 +134,7 @@ async def chat_with_ai(user_prompt: str, user_name: str, is_admin: bool) -> str:
         except Exception as e:
             logger.error(f"OpenAI Chat Error: {e}")
 
-    return "Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?"
+    return "Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?"
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -170,8 +170,12 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as notify_err:
             logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
-    # Indicate bot is typing
+    # Indicate typing with human delay for subscribers to feel 100% natural
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    
+    if not is_admin:
+        human_delay = random.uniform(2.5, 4.2)
+        await asyncio.sleep(human_delay)
 
     ai_reply = await chat_with_ai(user_prompt=user_text, user_name=user_name, is_admin=is_admin)
     await update.message.reply_text(ai_reply)
@@ -186,17 +190,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         welcome_text = (
             f"Assalomu alaykum, Hurmatli Kanal Egasi / Admin ({user.first_name})!\n\n"
-            f"🤖 Bot active: <b>@asay_s_blogg Telegram Automation System</b>\n"
+            f"🤖 Status: <b>@asay_s_blogg Automation System Active</b>\n"
             f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
             f"⏰ Schedule:\n"
             f"  • Ertalabki post: <b>09:00</b> ({POST_TIMEZONE})\n"
             f"  • Kechki post: <b>21:00</b> ({POST_TIMEZONE})\n\n"
             f"💬 Men sizning o'qilona yordamchingizman. Xohlagan savolingizni berishingiz mumkin.\n"
-            f"📩 Obunachilar botga yozgan barcha xabarlar avtomatik sizga (ID: {EXACT_ADMIN_ID}) yetkazib turiladi!"
+            f"📩 Obunachilar yozgan barcha xabarlar avtomatik sizga yetkazib turiladi!"
         )
     else:
         welcome_text = (
-            f"Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. "
+            f"Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. "
             f"Sizga qanday yordam bera olaman?"
         )
 
@@ -207,7 +211,7 @@ async def post_morning_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handler for /post_morning admin command."""
     user_id = str(update.effective_user.id)
     if not check_is_admin(user_id):
-        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?")
+        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?")
         return
 
     await update.message.reply_text("⏳ Ertalabki post yaratilmoqda...")
@@ -227,7 +231,7 @@ async def post_evening_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handler for /post_evening admin command."""
     user_id = str(update.effective_user.id)
     if not check_is_admin(user_id):
-        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanalining rasmiy yordamchisiman. Sizga qanday yordam bera olaman?")
+        await update.message.reply_text("Assalomu alaykum! Men @asay_s_blogg kanali vakiliman. Sizga qanday yordam bera olaman?")
         return
 
     await update.message.reply_text("⏳ Kechki post yaratilmoqda...")
@@ -322,7 +326,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with strict Admin ID filter: {EXACT_ADMIN_ID}...")
+    logger.info(f"Bot starting with Human Perception Engine & Admin ID {EXACT_ADMIN_ID}...")
     application.run_polling()
 
 
