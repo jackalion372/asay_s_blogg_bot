@@ -179,7 +179,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handles private text messages:
     - If Telegram ID == 8100325700 (Admin):
         - Creating post / responding to subscriber -> delivers message.
-        - AI Executive Assistant with exact prompt rules.
+        - AI Executive Assistant gives SINGLE direct answer (NO 2-choice options unless asked 'Mijozga nima deb javob beray').
     - If Subscriber (Other ID):
         - Sends exact fixed text:
           'Assalomu alaykum! 🌙
@@ -236,7 +236,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ Xatolik: {e}")
                 return
 
-        # AI Executive Assistant for Admin
+        # AI Executive Assistant for Admin (SINGLE direct response, NO option choices)
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         ai_reply = get_admin_ai_response(user_prompt=user_text, admin_name=user_name)
         await update.message.reply_text(ai_reply)
@@ -349,6 +349,7 @@ def build_application() -> Application:
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", start_command))
+    application.add_handler(CommandHandler("post_now", start_command))
 
     application.add_handler(CallbackQueryHandler(handle_callback_queries))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))

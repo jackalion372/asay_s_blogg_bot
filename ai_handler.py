@@ -35,8 +35,19 @@ def update_subscriber_context(user_name: str, username: str, user_id: str, text:
 def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
     """
     Executive Assistant AI exclusively for Admin ID 8100325700.
-    Uses Groq Llama-3.3-70B with exact specified system prompt.
+    Gives a SINGLE, DIRECT, SMART answer to Admin questions.
+    NEVER gives multiple options unless Admin explicitly asks 'Mijozga nima deb javob beray?'.
     """
+    lower_prompt = user_prompt.lower()
+    
+    # Check if admin explicitly asked for subscriber reply options
+    is_asking_subscriber_reply = any(phrase in lower_prompt for phrase in [
+        "mijozga nima deb javob beray", 
+        "mijozga nima dey", 
+        "qanday javob yozay", 
+        "obunachiga nima dey"
+    ])
+    
     subscriber_info = ""
     if LAST_SUBSCRIBER_CONTEXT["text"]:
         subscriber_info = (
@@ -45,31 +56,26 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
             f"- Text: \"{LAST_SUBSCRIBER_CONTEXT['text']}\"\n"
         )
 
+    if is_asking_subscriber_reply:
+        option_instruction = (
+            "Admin is explicitly asking how to reply to the latest subscriber. "
+            "Provide EXACTLY 2 short, polite Uzbek reply options tailored to the subscriber's message."
+        )
+    else:
+        option_instruction = (
+            "Give a SINGLE, DIRECT, SMART answer to the Admin's query. "
+            "STRICT RULE: DO NOT provide multiple reply options, DO NOT say 'quyidagilardan birini tanlang', DO NOT provide choices. Answer directly as a wise executive friend."
+        )
+
     system_instruction = (
-        "Sen @asay_s_blogg kanal adminining shaxsiy aqlli yordamchisisisan.\n\n"
+        "Sen @asay_s_blogg kanal adminining (ID: 8100325700) shaxsiy aqlli yordamchisisisan.\n\n"
         f"{subscriber_info}\n"
-        "ASOSIY QOIDA:\n"
-        "Admin qanday savol bersa, o'sha savol nuqtai nazaridan to'g'ridan-to'g'ri javob ber. Xuddi aqlli do'st suhbatidek.\n\n"
-        "HECH QACHON:\n"
-        "- Javob variantlari ko'rsatma (admin so'ramasa)\n"
-        "- Ortiqcha savol berma\n"
-        "- Shablon ishlatma\n"
-        "- Takroriy salom qilma\n"
-        "- 'Quyidagilardan birini tanlang' dema\n\n"
-        "FAQAT BITTA ISTISNO:\n"
-        "Admin o'zi 'Mijozga nima dey?' yoki 'Qanday javob yozay?' deb so'rasa — o'shanda 2 ta qisqa, odobli javob varianti ber.\n\n"
-        "SUHBAT DOIRASI:\n"
-        "- Islomiy mavzular (hadis, oyat, duo, tazkiya, axloq)\n"
-        "- Kanal strategiyasi va post g'oyalari\n"
-        "- Obunachi munosabatlari\n"
-        "- Hayotiy masalalar va maslahat\n"
-        "- Istalgan mavzuda admin savol bersa — o'sha nuqtadan javob ber\n\n"
-        "USLUB:\n"
-        "- Til: O'zbek\n"
-        "- Qisqa va aniq\n"
-        "- Islomiy odobda\n"
-        "- Aqlli va samimiy\n"
-        "- Keraksiz gap yo'q"
+        f"{option_instruction}\n\n"
+        "STRICT RULES:\n"
+        "- Answer directly in Uzbek, concise, intelligent, and respectful.\n"
+        "- NO repetitive greetings ('Assalomu alaykum').\n"
+        "- NO modern psychology jargon, NO secular self-help terms.\n"
+        "- Maintain authentic Islamic dignity and wisdom."
     )
 
     if GROQ_API_KEY:
@@ -82,7 +88,7 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=450,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -98,7 +104,7 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=500,
+                max_tokens=450,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
