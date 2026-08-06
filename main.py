@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Strict Admin Telegram ID
 EXACT_ADMIN_ID = "8100325700"
 
-# Memory for last subscriber interaction so Admin never has to explain which user or text
+# Memory for last subscriber interaction
 LAST_SUBSCRIBER_CONTEXT = {
     "user_name": "",
     "username": "",
@@ -130,7 +130,7 @@ async def keep_alive_ping():
 
 
 async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
-    """Generates executive assistance AI response exclusively for the Admin, knowing the latest subscriber message context."""
+    """Generates concise executive AI response for Admin without unneeded chatter."""
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
 
@@ -138,18 +138,15 @@ async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
     if LAST_SUBSCRIBER_CONTEXT["text"]:
         subscriber_info = (
             f"LATEST SUBSCRIBER MESSAGE CONTEXT:\n"
-            f"- Subscriber Name: {LAST_SUBSCRIBER_CONTEXT['user_name']} (@{LAST_SUBSCRIBER_CONTEXT['username']})\n"
-            f"- Message Text: \"{LAST_SUBSCRIBER_CONTEXT['text']}\"\n"
-            f"Note: You ALREADY know this message context. NEVER ask the admin 'which user?' or 'what did they write?'. "
-            f"If Admin asks how to reply, hesitates, or asks for advice, IMMEDIATELY offer 2-3 smart, executive, polite Uzbek reply options tailored to this message.\n"
+            f"- Subscriber: {LAST_SUBSCRIBER_CONTEXT['user_name']} (@{LAST_SUBSCRIBER_CONTEXT['username']})\n"
+            f"- Text: \"{LAST_SUBSCRIBER_CONTEXT['text']}\"\n"
+            f"Rule: If Admin asks how to reply or asks for advice, provide 2 concise, polite reply options in Uzbek right away. DO NOT chatter or ask questions.\n"
         )
 
     system_instruction = (
-        f"You are the executive RIGHT-HAND MANAGER and ASSISTANT for {user_name}, the OWNER and ADMIN of @asay_s_blogg channel.\n"
+        f"You are the quiet executive assistant for {user_name}, owner of @asay_s_blogg channel.\n"
         f"{subscriber_info}\n"
-        "Your role: Help the admin draft replies, brainstorm high-value post ideas, analyze strategy, and format quotes/hadiths.\n"
-        "STRICT STYLE RULES: Never repeat repetitive greetings ('Assalomu alaykum') constantly. Speak directly, clearly, intelligently, and productively in Uzbek.\n"
-        "Strictly NO modern psychology jargon, NO secular self-help terms. Always maintain authentic Islamic dignity."
+        "STRICT STYLE RULES: Be quiet, concise, direct, and intelligent in Uzbek. DO NOT chatter, DO NOT say repetitive greetings, DO NOT nag the admin."
     )
 
     if groq_key:
@@ -162,7 +159,7 @@ async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=650,
+                max_tokens=450,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -178,13 +175,13 @@ async def chat_with_admin_ai(user_prompt: str, user_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=650,
+                max_tokens=450,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"OpenAI Chat Error: {e}")
 
-    return "Tushundim, Admin. Qanday yordam beray?"
+    return "Tushundim."
 
 
 async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,8 +193,20 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
     if data.startswith("reply_user_"):
         target_user_id = data.replace("reply_user_", "")
         context.user_data["reply_target_user_id"] = target_user_id
+        
+        cancel_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Aloqani Yakunlash", callback_data=f"cancel_reply_{target_user_id}")]
+        ])
+        
         await query.edit_message_caption(
-            caption=query.message.caption + "\n\n✍️ <i>Javob matningizni yuboring:</i>",
+            caption=query.message.caption + "\n\n✍️ <i>Obunachiga yuboriladigan matningizni yozing:</i>",
+            reply_markup=cancel_keyboard,
+            parse_mode="HTML"
+        )
+    elif data.startswith("cancel_reply_"):
+        context.user_data.pop("reply_target_user_id", None)
+        await query.edit_message_caption(
+            caption=query.message.caption + "\n\n❌ <i>Aloqa yakunlandi.</i>",
             parse_mode="HTML"
         )
 
@@ -205,8 +214,11 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles private messages:
-    - If Admin: AI acts as Executive Right-Hand Manager, remembering the latest subscriber context.
-    - If Subscriber: Remembers message context and relays to Admin without any auto-bot text.
+    - If Admin:
+        - "yozib bo'ldim" / "boldi kerak emas" -> closes session quietly.
+        - "mijozga nima deb javob beray" -> gives 2 smart options without chatter.
+        - Sending text during active session -> delivers directly to subscriber and closes session.
+    - If Subscriber: Relays message to Admin. Zero auto-AI text sent to subscriber.
     """
     if not update.message or not update.message.text:
         return
@@ -223,56 +235,62 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_admin = check_is_admin(user_id)
 
-    # If ADMIN is responding to a subscriber via reply session -> send exact text with ZERO prefixes!
-    if is_admin and "reply_target_user_id" in context.user_data:
-        target_uid = context.user_data.pop("reply_target_user_id")
-        try:
-            await context.bot.send_message(
-                chat_id=target_uid,
-                text=user_text
-            )
-            await update.message.reply_text("✅ Yuborildi.")
-            return
-        except Exception as e:
-            await update.message.reply_text(f"❌ Xatolik: {e}")
+    # ADMIN CONTROL LOGIC
+    if is_admin:
+        lower_text = user_text.lower()
+
+        # Handle dismissal / session closing phrases
+        if any(phrase in lower_text for phrase in ["yozib boldim", "yozib bo'ldim", "boldi kerak emas", "bo'ldi kerak emas", "kerak emas", "bekor qilish"]):
+            context.user_data.pop("reply_target_user_id", None)
+            await update.message.reply_text("Obunachi bilan aloqa yakunlandi.")
             return
 
-    # FOR SUBSCRIBERS: Remember context & relay to Admin ID 8100325700. Zero auto-AI reply.
-    if not is_admin:
-        WEEKLY_STATS["messages_received"] += 1
+        # If Admin is in an active reply session and sends the message to subscriber
+        if "reply_target_user_id" in context.user_data:
+            target_uid = context.user_data.pop("reply_target_user_id")
+            try:
+                await context.bot.send_message(
+                    chat_id=target_uid,
+                    text=user_text
+                )
+                await update.message.reply_text("✅ Yuborildi. Aloqa yakunlandi.")
+                return
+            except Exception as e:
+                await update.message.reply_text(f"❌ Xatolik: {e}")
+                return
 
-        # Save into Admin Memory automatically
-        LAST_SUBSCRIBER_CONTEXT["user_name"] = user_name
-        LAST_SUBSCRIBER_CONTEXT["username"] = username
-        LAST_SUBSCRIBER_CONTEXT["user_id"] = user_id
-        LAST_SUBSCRIBER_CONTEXT["text"] = user_text
-        LAST_SUBSCRIBER_CONTEXT["time"] = datetime.now().strftime("%H:%M")
-
-        try:
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💬 Obunachiga Javob Yozish", callback_data=f"reply_user_{user_id}")]
-            ])
-            admin_notification = (
-                f"📩 <b>Obunachidan yangi xabar:</b>\n"
-                f"👤 <b>Kimdan:</b> {user_name} (@{username} / ID: <code>{user_id}</code>)\n"
-                f"💬 <b>Xabar:</b> {user_text}"
-            )
-            await context.bot.send_message(
-                chat_id=EXACT_ADMIN_ID,
-                text=admin_notification,
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-        except Exception as notify_err:
-            logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
-
-        # Completely silent receipt
+        # General Admin queries (e.g. "mijozga nima deb javob beray")
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        ai_reply = await chat_with_admin_ai(user_prompt=user_text, user_name=user_name)
+        await update.message.reply_text(ai_reply)
         return
 
-    # FOR ADMIN (Siz): AI acts as Executive Right-Hand Manager (already knows last subscriber context!)
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    ai_reply = await chat_with_admin_ai(user_prompt=user_text, user_name=user_name)
-    await update.message.reply_text(ai_reply)
+    # FOR SUBSCRIBERS: Pure relay to Admin ID 8100325700
+    WEEKLY_STATS["messages_received"] += 1
+
+    LAST_SUBSCRIBER_CONTEXT["user_name"] = user_name
+    LAST_SUBSCRIBER_CONTEXT["username"] = username
+    LAST_SUBSCRIBER_CONTEXT["user_id"] = user_id
+    LAST_SUBSCRIBER_CONTEXT["text"] = user_text
+    LAST_SUBSCRIBER_CONTEXT["time"] = datetime.now().strftime("%H:%M")
+
+    try:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💬 Obunachiga Javob Yozish", callback_data=f"reply_user_{user_id}")]
+        ])
+        admin_notification = (
+            f"📩 <b>Obunachidan yangi xabar:</b>\n"
+            f"👤 <b>Kimdan:</b> {user_name} (@{username} / ID: <code>{user_id}</code>)\n"
+            f"💬 <b>Xabar:</b> {user_text}"
+        )
+        await context.bot.send_message(
+            chat_id=EXACT_ADMIN_ID,
+            text=admin_notification,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as notify_err:
+        logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
 
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -302,13 +320,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             await context.bot.forward_message(chat_id=EXACT_ADMIN_ID, from_chat_id=update.effective_chat.id, message_id=update.message.message_id)
         except Exception as notify_err:
             logger.warning(f"Could not relay voice to admin: {notify_err}")
-        return
     else:
-        await update.message.reply_text("Ovozli xabaringiz qabul qilindi, Admin.")
+        await update.message.reply_text("Ovozli xabar qabul qilindi.")
 
 
 async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command /reply <user_id> <message> to reply directly without prefixes."""
+    """Admin command /reply <user_id> <message> to reply directly."""
     user_id = str(update.effective_user.id)
     if not check_is_admin(user_id):
         return
@@ -342,8 +359,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👑 <b>O'ng Qo'lingiz va Menejeringiz faol, Admin {user.first_name}!</b>\n\n"
             f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
             f"⏰ Postlar: <b>09:00 & 21:00</b> | Juma Maxsus: <b>08:00</b>\n\n"
-            f"Menga istalgan savolingiz yoki kontent topshirig'ingizni yuborishingiz mumkin.\n"
-            f"💡 Obunachi yozganda: 'Bunga nima deb javob bera olay?' desangiz, darhol 2-3 ta tayyor variant beraman!"
+            f"Menga istalgan topshirig'ingizni yozishingiz mumkin."
         )
     else:
         welcome_text = (
@@ -468,7 +484,7 @@ def main():
     application.add_handler(CommandHandler("post_evening", post_morning_command))
     application.add_handler(CommandHandler("reply", reply_command))
 
-    # Callback Query Handler for Admin Reply Button
+    # Callback Query Handler for Admin Reply Button & Cancel Button
     application.add_handler(CallbackQueryHandler(handle_admin_reply_button))
 
     # Voice Message Handler
@@ -481,7 +497,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with Subscriber Context Memory for Admin...")
+    logger.info(f"Bot starting with Executive Admin Workflow & Instant Session Termination...")
     application.run_polling()
 
 
