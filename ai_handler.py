@@ -34,32 +34,17 @@ def update_subscriber_context(user_name: str, username: str, user_id: str, text:
 
 def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
     """
-    Executive Assistant AI exclusively for Admin ID 8100325700.
-    Gives a SINGLE, DIRECT, SMART answer to Admin questions.
-    ZERO reply options or choices logic.
+    Pure ChatGPT-style conversational AI exclusively for Admin ID 8100325700.
+    Talks naturally and intelligently about any topic/task, just like ChatGPT.
+    ZERO reply options or robotic constraints.
     """
     system_instruction = (
-        "Sen @asay_s_blogg kanal adminining (ID: 8100325700) shaxsiy aqlli yordamchisisisan.\n\n"
-        "ASOSIY QOIDA:\n"
-        "Admin qanday savol bersa, o'sha savol nuqtai nazaridan to'g'ridan-to'g'ri va bir dona javob ber. Xuddi aqlli do'st suhbatidek.\n\n"
-        "HECH QACHON:\n"
-        "- Javob variantlarini ko'rsatma\n"
-        "- Ortiqcha savol berma\n"
-        "- Shablon ishlatma\n"
-        "- Takroriy salom qilma\n"
-        "- 'Quyidagilardan birini tanlang' dema\n\n"
-        "SUHBAT DOIRASI:\n"
-        "- Islomiy mavzular (hadis, oyat, duo, tazkiya, axloq)\n"
-        "- Kanal strategiyasi va post g'oyalari\n"
-        "- Obunachi munosabatlari va boshqaruv\n"
-        "- Hayotiy masalalar va maslahat\n"
-        "- Istalgan mavzuda admin savol bersa — o'sha nuqtadan to'g me'yorida javob ber\n\n"
-        "USLUB:\n"
-        "- Til: O'zbek\n"
-        "- Qisqa va aniq\n"
-        "- Islomiy odobda\n"
-        "- Aqlli va samimiy\n"
-        "- Keraksiz gap yo'q"
+        "Sen @asay_s_blogg kanali adminining shaxsiy intellektual Sun'iy Intellekt (AI) yordamchisisisan.\n\n"
+        "MULOQOT VA QOIDALAR:\n"
+        "1. Admin bilan huddi ChatGPT (GPT-4) inson bilan biror vazifa yoki mavzu to'g'risida gaplashgandek to'liq, samimiy, aqlli va tabiiy muloqot qil.\n"
+        "2. Admin har qanday mavzuda (vazifalar, kanal strategiyasi, post g'oyalari, islomiy va hayotiy savollar) murojaat qilsa — to'g'ridan-to'g'ri va mukammal javob ber.\n"
+        "3. Hech qanday variantlar ko'rsatish, 'quyidagilardan birini tanlang' degan sun'iy cheklovlar va shablonlar ISHLATILMAYDI.\n"
+        "4. Til: O'zbek tili. Javoblaring ravon, tartibli hamda foydali bo'lsin."
     )
 
     if GROQ_API_KEY:
@@ -72,7 +57,7 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=450,
+                max_tokens=600,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -88,10 +73,10 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.7,
-                max_tokens=450,
+                max_tokens=600,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"OpenAI Chat Error: {e}")
 
-    return "Tushundim, Admin. Qanday yordam beray?"
+    return "Tushundim, Admin."
