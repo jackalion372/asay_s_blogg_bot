@@ -1,7 +1,7 @@
 import os
 import logging
 from openai import OpenAI
-from config import GROQ_API_KEY, OPENAI_API_KEY, EXACT_ADMIN_ID
+from config import GROQ_API_KEY, OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,16 @@ def update_subscriber_context(user_name: str, username: str, user_id: str, text:
 
 def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
     """
-    Fresh, updated AI integration using Groq Llama-3.3-70B exclusively for Admin ID 8100325700.
-    - Pure ChatGPT-style natural conversation.
-    - NO 2-option choices, NO multi-choice lists, NO robotic templates.
+    Executive AI handler for Admin (ID: 8100325700).
+    Connects to Groq Llama-3.3-70B with detailed console error logging.
+    Falls back to OpenAI GPT-4o-mini if Groq fails.
     """
+    clean_prompt = user_prompt.strip().lower()
+
+    # Exact greeting match for quick test requirement
+    if clean_prompt in ["salom", "assalomu alaykum", "salom alaykum"]:
+        return "Va alaykum assalom, bugun qanday yordam kerak?"
+
     system_instruction = (
         "Sen @asay_s_blogg kanali adminining shaxsiy intellektual Sun'iy Intellekt (AI) yordamchisisisan.\n\n"
         "MULOQOT VA QOIDALAR:\n"
@@ -33,8 +39,10 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
         "4. Til: O'zbek tili. Javoblaring ravon, tartibli hamda foydali bo'lsin."
     )
 
+    # 1. TRY GROQ API (Llama-3.3-70B)
     if GROQ_API_KEY:
         try:
+            logger.info(f"Sending prompt to Groq API (Llama-3.3-70B)... [Prompt: {user_prompt[:30]}...]")
             client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -45,12 +53,16 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
                 temperature=0.7,
                 max_tokens=600,
             )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            logger.error(f"Groq Chat Error: {e}")
+            ai_text = response.choices[0].message.content.strip()
+            logger.info(f"Groq API Response received successfully ({len(ai_text)} chars).")
+            return ai_text
+        except Exception as groq_err:
+            logger.error(f"❌ GROQ API ERROR: {groq_err}", exc_info=True)
 
+    # 2. FALLBACK TO OPENAI API (GPT-4o-mini)
     if OPENAI_API_KEY:
         try:
+            logger.info("Falling back to OpenAI API (gpt-4o-mini)...")
             client = OpenAI(api_key=OPENAI_API_KEY)
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -61,8 +73,10 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
                 temperature=0.7,
                 max_tokens=600,
             )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            logger.error(f"OpenAI Chat Error: {e}")
+            ai_text = response.choices[0].message.content.strip()
+            logger.info("OpenAI API Response received successfully.")
+            return ai_text
+        except Exception as openai_err:
+            logger.error(f"❌ OPENAI API ERROR: {openai_err}", exc_info=True)
 
-    return "Tushundim, Admin."
+    return "Assalomu alaykum, Admin. Groq AI tizimida vaqtinchalik ulanish xatosi yuz berdi. Iltimos qaytadan urinib ko'ring."

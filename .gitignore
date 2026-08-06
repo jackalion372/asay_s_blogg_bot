@@ -1,5 +1,5 @@
 .env
 __pycache__/
 *.pyc
-temp_*
-*.log
+.pytest_cache/
+scratch/
