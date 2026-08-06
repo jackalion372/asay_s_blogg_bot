@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 from config import BOT_TOKEN, CHANNEL_ID, EXACT_ADMIN_ID, POST_TIMEZONE, validate_config
-from ai_handler import get_admin_ai_response, update_subscriber_context, SUBSCRIBERS_DB
+from ai_handler import update_subscriber_context, SUBSCRIBERS_DB
 from scheduler import setup_scheduler, WEEKLY_STATS
 from content_generator import generate_daily_post
 from telegram_poster import send_post_to_channel
@@ -49,7 +49,8 @@ def get_admin_dashboard_markup() -> InlineKeyboardMarkup:
             InlineKeyboardButton("👥 Obunachilar", callback_data="admin_subscribers")
         ],
         [
-            InlineKeyboardButton("⚙️ Sozlamalar", callback_data="admin_settings")
+            InlineKeyboardButton("⚙️ Sozlamalar", callback_data="admin_settings"),
+            InlineKeyboardButton("🔄 Post Yuborish", callback_data="admin_trigger_post")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -66,10 +67,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(welcome_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
     else:
         welcome_text = (
-            "Assalomu alaykum! 🌙\n\n"
-            "@asay_s_blogg kanaliga xush kelibsiz.\n\n"
+            "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
             "Bot avtomatik javob bermaydi.\n"
-            "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
+            "Xabaringizni yozib qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
         )
         await update.message.reply_text(welcome_text, reply_markup=get_subscriber_markup(), parse_mode="HTML")
 
@@ -101,7 +101,7 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
             "📊 <b>Statistika Bo'limi:</b>\n\n"
             f"👤 <b>Jami obunachi soni:</b> {len(SUBSCRIBERS_DB)} ta\n"
             f"📝 <b>Bugungi postlar soni:</b> {WEEKLY_STATS['posts_sent']} ta\n"
-            f"📈 <b>Haftalik o'sish:</b> {WEEKLY_STATS['messages_received']} ta murojaat\n"
+            f"📈 <b>Haftalik murojaatlar:</b> {WEEKLY_STATS['messages_received']} ta\n"
             f"⚡ <b>Server holati:</b> 24/7 Bulutda Faol (Render)"
         )
         await query.message.reply_text(stats_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
@@ -152,10 +152,18 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
             f"⏰ <b>Post vaqtlarini o'zgartirish:</b> 09:00 & 21:00 ({POST_TIMEZONE})\n"
             f"🕌 <b>Juma posti vaqti:</b> Juma 07:45\n"
             f"📝 <b>Xabar shablonlarini tahrirlash:</b> Rasmiy Sahih Baza\n"
-            f"🤖 <b>AI Modeli:</b> Groq Llama-3.3-70B\n"
             f"🔒 <b>Admin ID:</b> <code>{EXACT_ADMIN_ID}</code>"
         )
         await query.message.reply_text(settings_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
+
+    elif data == "admin_trigger_post":
+        await query.message.reply_text("⏳ Post yaratilmoqda va kanalga yuborilmoqda...")
+        post_content = generate_daily_post(slot="morning")
+        success = await send_post_to_channel(post_content, attach_media=True)
+        if success:
+            await query.message.reply_text("✅ Post kanalga muvaffaqiyatli joylashtirildi!")
+        else:
+            await query.message.reply_text("❌ Post yuborishda xatolik.")
 
     elif data.startswith("reply_user_"):
         target_user_id = data.replace("reply_user_", "")
@@ -176,17 +184,14 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handles private text messages:
-    - If Telegram ID == 8100325700 (Admin):
-        - Creating post / responding to subscriber -> delivers message.
-        - AI Executive Assistant gives SINGLE direct answer (NO 2-choice options unless asked 'Mijozga nima deb javob beray').
+    Handles private text messages with ZERO AI:
+    - If Admin (ID: 8100325700):
+        - Creating post -> publishes directly to channel.
+        - Responding to subscriber -> forwards message to subscriber.
+        - Otherwise -> shows Admin Dashboard.
     - If Subscriber (Other ID):
-        - Sends exact fixed text:
-          'Assalomu alaykum! 🌙
-           @asay_s_blogg kanaliga xush kelibsiz.
-           Bot avtomatik javob bermaydi.
-           Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲'
-        - Relays message to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash] buttons.
+        - Sends fixed text: '@asay_s_blogg kanalining rasmiy boti. Xabaringizni yozib qoldirishingiz mumkin.'
+        - Relays message directly to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash] buttons.
     """
     if not update.message or not update.message.text:
         return
@@ -204,11 +209,11 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_admin = check_is_admin(user_id)
 
-    # 1. ADMIN LOGIC (ID 8100325700)
+    # 1. ADMIN LOGIC (ID: 8100325700)
     if is_admin:
         lower_text = user_text.lower()
 
-        # Handle Admin creating custom post
+        # Handle Admin creating custom post for channel
         if context.user_data.pop("admin_creating_post", False):
             attach_v = context.user_data.pop("post_with_video", True)
             await update.message.reply_text("⏳ Yozgan matningiz kanalga joylashtirilmoqda...")
@@ -236,24 +241,20 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ Xatolik: {e}")
                 return
 
-        # AI Executive Assistant for Admin (SINGLE direct response, NO option choices)
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        ai_reply = get_admin_ai_response(user_prompt=user_text, admin_name=user_name)
-        await update.message.reply_text(ai_reply)
+        # Simple Admin text handler (NO AI)
+        await update.message.reply_text("👑 <b>Admin Paneli — @asay_s_blogg</b>", reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
         return
 
-    # 2. SUBSCRIBER LOGIC (Other IDs)
+    # 2. SUBSCRIBER LOGIC (Other IDs - ZERO AI)
     WEEKLY_STATS["messages_received"] += 1
     update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text=user_text, time_str=time_str)
 
-    # A. Send exact fixed text to subscriber
+    # A. Send fixed text to subscriber
     subscriber_fixed_msg = (
-        "Assalomu alaykum! 🌙\n\n"
-        "@asay_s_blogg kanaliga xush kelibsiz.\n\n"
-        "Bot avtomatik javob bermaydi.\n"
-        "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
+        "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
+        "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin. 🤲"
     )
-    await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup())
+    await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup(), parse_mode="HTML")
 
     # B. Relay message to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash]
     try:
@@ -293,12 +294,10 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text="[Ovozli xabar yubordi]", time_str=datetime.now().strftime("%H:%M"))
 
         subscriber_fixed_msg = (
-            "Assalomu alaykum! 🌙\n\n"
-            "@asay_s_blogg kanaliga xush kelibsiz.\n\n"
-            "Bot avtomatik javob bermaydi.\n"
-            "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
+            "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
+            "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin. 🤲"
         )
-        await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup())
+        await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup(), parse_mode="HTML")
 
         try:
             keyboard = InlineKeyboardMarkup([
@@ -349,7 +348,6 @@ def build_application() -> Application:
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", start_command))
-    application.add_handler(CommandHandler("post_now", start_command))
 
     application.add_handler(CallbackQueryHandler(handle_callback_queries))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
