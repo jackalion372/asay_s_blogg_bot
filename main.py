@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 from datetime import datetime
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -49,12 +50,39 @@ LAST_SUBSCRIBER_CONTEXT = {
 # Weekly interaction counter
 WEEKLY_STATS = {"posts_sent": 0, "messages_received": 0}
 
+AUTHENTIC_DUAS = [
+    {
+        "arabic": "اللَّهُمَّ إِنِّي أَسْأَلُكَ العَفْوَ وَالعَافِيَةَ فِي الدُّنْيَا وَالآخِرَةِ",
+        "english": "\"O Allah, I ask You for forgiveness and well-being in this world and the Hereafter.\"",
+        "citation": "[Sunan Ibn Majah #3871, Sahih]"
+    },
+    {
+        "arabic": "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ",
+        "english": "\"Our Lord, give us in this world [that which is] good and in the Hereafter [that which is] good and protect us from the punishment of the Fire.\"",
+        "citation": "[Surah Al-Baqarah: 201]"
+    },
+    {
+        "arabic": "يَا مُقَلِّبَ الْقُلُوبِ ثَبِّتْ قَلْبِي عَلَى دِينِكَ",
+        "english": "\"O Turner of the hearts, make my heart firm upon Your religion.\"",
+        "citation": "[Jami' at-Tirmidhi #2140, Sahih]"
+    }
+]
+
 
 def check_is_admin(user_id: str) -> bool:
     """Checks strictly whether user_id matches the official Admin ID '8100325700'."""
     uid = str(user_id).strip()
     configured = (ADMIN_USER_ID or os.getenv("ADMIN_USER_ID", "")).strip()
     return uid == EXACT_ADMIN_ID or uid == configured
+
+
+async def send_error_alert_to_admin(app_bot, error_msg: str):
+    """Sends automatic exception error alerts directly to Admin's Telegram."""
+    try:
+        alert_text = f"⚠️ <b>Bot Tizimida Xatolik Yuz Berdi:</b>\n\n<code>{error_msg}</code>"
+        await app_bot.send_message(chat_id=EXACT_ADMIN_ID, text=alert_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Failed to send error alert to admin: {e}")
 
 
 async def trigger_posting(slot: str = "morning"):
@@ -73,7 +101,7 @@ async def trigger_posting(slot: str = "morning"):
 
 
 async def trigger_friday_special():
-    """Special Friday Mubarak post at 08:00 AM every Friday."""
+    """Special Friday Mubarak post at 07:45 AM every Friday."""
     logger.info("Executing Friday Mubarak special post...")
     friday_html = (
         "<b>Juma Ayyomingiz Muborak Bo'lsin! ✨</b>\n\n"
@@ -212,14 +240,7 @@ async def handle_admin_reply_button(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Handles private messages:
-    - If Admin:
-        - "yozib bo'ldim" / "boldi kerak emas" -> closes session quietly.
-        - "mijozga nima deb javob beray" -> gives 2 smart options without chatter.
-        - Sending text during active session -> delivers directly to subscriber and closes session.
-    - If Subscriber: Relays message to Admin. Zero auto-AI text sent to subscriber.
-    """
+    """Handles private text messages."""
     if not update.message or not update.message.text:
         return
 
@@ -239,33 +260,27 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         lower_text = user_text.lower()
 
-        # Handle dismissal / session closing phrases
         if any(phrase in lower_text for phrase in ["yozib boldim", "yozib bo'ldim", "boldi kerak emas", "bo'ldi kerak emas", "kerak emas", "bekor qilish"]):
             context.user_data.pop("reply_target_user_id", None)
             await update.message.reply_text("Obunachi bilan aloqa yakunlandi.")
             return
 
-        # If Admin is in an active reply session and sends the message to subscriber
         if "reply_target_user_id" in context.user_data:
             target_uid = context.user_data.pop("reply_target_user_id")
             try:
-                await context.bot.send_message(
-                    chat_id=target_uid,
-                    text=user_text
-                )
+                await context.bot.send_message(chat_id=target_uid, text=user_text)
                 await update.message.reply_text("✅ Yuborildi. Aloqa yakunlandi.")
                 return
             except Exception as e:
                 await update.message.reply_text(f"❌ Xatolik: {e}")
                 return
 
-        # General Admin queries (e.g. "mijozga nima deb javob beray")
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         ai_reply = await chat_with_admin_ai(user_prompt=user_text, user_name=user_name)
         await update.message.reply_text(ai_reply)
         return
 
-    # FOR SUBSCRIBERS: Pure relay to Admin ID 8100325700
+    # FOR SUBSCRIBERS
     WEEKLY_STATS["messages_received"] += 1
 
     LAST_SUBSCRIBER_CONTEXT["user_name"] = user_name
@@ -291,6 +306,18 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as notify_err:
         logger.warning(f"Could not relay message to admin {EXACT_ADMIN_ID}: {notify_err}")
+
+
+async def duo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for /duo command - returns authentic daily supplication."""
+    duo = random.choice(AUTHENTIC_DUAS)
+    duo_text = (
+        f"<b>Kunlik Sahih Duo:</b>\n\n"
+        f"<blockquote>{duo['arabic']}\n\n"
+        f"{duo['english']}\n\n"
+        f"<b>{duo['citation']}</b></blockquote>"
+    )
+    await update.message.reply_text(duo_text, parse_mode="HTML")
 
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -325,7 +352,7 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command /reply <user_id> <message> to reply directly."""
+    """Admin command /reply <user_id> <message>."""
     user_id = str(update.effective_user.id)
     if not check_is_admin(user_id):
         return
@@ -339,10 +366,7 @@ async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_msg = " ".join(args[1:])
 
     try:
-        await context.bot.send_message(
-            chat_id=target_uid,
-            text=reply_msg
-        )
+        await context.bot.send_message(chat_id=target_uid, text=reply_msg)
         await update.message.reply_text("✅ Yuborildi.")
     except Exception as e:
         await update.message.reply_text(f"❌ Xatolik: {e}")
@@ -358,8 +382,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_text = (
             f"👑 <b>O'ng Qo'lingiz va Menejeringiz faol, Admin {user.first_name}!</b>\n\n"
             f"📌 Channel: <code>{CHANNEL_ID}</code>\n"
-            f"⏰ Postlar: <b>09:00 & 21:00</b> | Juma Maxsus: <b>08:00</b>\n\n"
-            f"Menga istalgan topshirig'ingizni yozishingiz mumkin."
+            f"⏰ Postlar: <b>09:00 & 21:00</b> | Juma Maxsus: <b>07:45</b>\n\n"
+            f"Commands:\n"
+            f"/duo — Daily authentic supplication\n"
+            f"/post_morning — Manual post trigger"
         )
     else:
         welcome_text = (
@@ -390,7 +416,7 @@ async def post_morning_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 def setup_scheduler(app_instance: Application) -> AsyncIOScheduler:
-    """Sets up APScheduler for daily posts, Friday special, and Sunday admin report."""
+    """Sets up APScheduler for daily posts, Friday special (07:45), and Sunday admin report."""
     scheduler = AsyncIOScheduler(timezone=pytz.timezone(POST_TIMEZONE))
 
     # Daily Morning & Evening posts
@@ -412,13 +438,13 @@ def setup_scheduler(app_instance: Application) -> AsyncIOScheduler:
         name="daily_evening_post",
     )
 
-    # Friday Mubarak Special Post (Every Friday at 08:00 AM)
+    # Friday Mubarak Special Post (Every Friday at 07:45 AM)
     scheduler.add_job(
         trigger_friday_special,
         trigger="cron",
         day_of_week="fri",
-        hour=8,
-        minute=0,
+        hour=7,
+        minute=45,
         name="friday_mubarak_special",
     )
 
@@ -433,7 +459,7 @@ def setup_scheduler(app_instance: Application) -> AsyncIOScheduler:
         name="weekly_admin_summary",
     )
 
-    logger.info(f"Scheduler configured: 2 daily posts, Friday Special, and Sunday Admin Summary ({POST_TIMEZONE}).")
+    logger.info(f"Scheduler configured: 2 daily posts, Friday Special (07:45), and Sunday Admin Summary ({POST_TIMEZONE}).")
     return scheduler
 
 
@@ -479,12 +505,13 @@ def main():
 
     # Add Command Handlers
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("duo", duo_command))
     application.add_handler(CommandHandler("post_now", post_morning_command))
     application.add_handler(CommandHandler("post_morning", post_morning_command))
     application.add_handler(CommandHandler("post_evening", post_morning_command))
     application.add_handler(CommandHandler("reply", reply_command))
 
-    # Callback Query Handler for Admin Reply Button & Cancel Button
+    # Callback Query Handler
     application.add_handler(CallbackQueryHandler(handle_admin_reply_button))
 
     # Voice Message Handler
@@ -497,7 +524,7 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
 
-    logger.info(f"Bot starting with Executive Admin Workflow & Instant Session Termination...")
+    logger.info(f"Bot starting with Enhanced Safety Filters & Error Alerts...")
     application.run_polling()
 
 
