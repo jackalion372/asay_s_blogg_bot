@@ -30,11 +30,44 @@ def check_is_admin(user_id: str) -> bool:
     return str(user_id).strip() == EXACT_ADMIN_ID
 
 
-def get_subscriber_markup() -> InlineKeyboardMarkup:
-    """Returns Subscriber Inline Keyboard with [📩 Adminga Murojaat] button."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📩 Adminga Murojaat", callback_data="sub_contact_admin")]
-    ])
+def get_language_selection_markup() -> InlineKeyboardMarkup:
+    """Returns Language Selection Inline Keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="lang_uz"),
+            InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
+            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_subscriber_welcome_data(lang: str) -> tuple:
+    """Returns multi-language welcome text and contact button based on language choice."""
+    if lang == "ru":
+        text = (
+            "Ассаламу алейкум ва рахматуллахи ва баракатух! 🌙\n\n"
+            "Добро пожаловать на канал @asay_s_blogg.\n\n"
+            "Вы можете оставить свое сообщение — наш администратор ответит вам в ближайшее время. 🤲"
+        )
+        button_text = "📩 Обратиться к админу"
+    elif lang == "en":
+        text = (
+            "Assalamu Alaikum wa Rahmatullah wa Barakatuh! 🌙\n\n"
+            "Welcome to @asay_s_blogg.\n\n"
+            "You can leave your message — our admin will reply to you shortly. 🤲"
+        )
+        button_text = "📩 Contact Admin"
+    else:  # Default Uzbek
+        text = (
+            "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
+            "@asay_s_blogg kanaliga xush kelibsiz.\n\n"
+            "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
+        )
+        button_text = "📩 Adminga Murojaat"
+
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data="sub_contact_admin")]])
+    return text, markup
 
 
 def get_admin_dashboard_markup() -> InlineKeyboardMarkup:
@@ -66,12 +99,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_text = "👑 <b>Admin Paneli — @asay_s_blogg</b>"
         await update.message.reply_text(welcome_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
     else:
-        welcome_text = (
-            "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
-            "Bot avtomatik javob bermaydi.\n"
-            "Xabaringizni yozib qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
+        # Prompt language selection first for subscribers
+        lang_prompt = (
+            "🌐 <b>Muloqot tilini tanlang / Select language / Выберите язык:</b>"
         )
-        await update.message.reply_text(welcome_text, reply_markup=get_subscriber_markup(), parse_mode="HTML")
+        await update.message.reply_text(lang_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
 
 
 async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,13 +115,25 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
     is_admin = check_is_admin(user_id)
     data = query.data
 
-    # --- 1. SUBSCRIBER BUTTON CALLBACKS ---
+    # --- 1. SUBSCRIBER LANGUAGE CALLBACKS ---
+    if data.startswith("lang_"):
+        selected_lang = data.replace("lang_", "")
+        context.user_data["user_lang"] = selected_lang
+        welcome_text, markup = get_subscriber_welcome_data(selected_lang)
+        await query.edit_message_text(welcome_text, reply_markup=markup)
+        return
+
     if data == "sub_contact_admin":
+        lang = context.user_data.get("user_lang", "uz")
+        if lang == "ru":
+            prompt = "📩 <b>Напишите ваше сообщение или вопрос для администрации канала:</b>"
+        elif lang == "en":
+            prompt = "📩 <b>Write your message or question for the channel administration:</b>"
+        else:
+            prompt = "📩 <b>Kanal ma'muriyatiga yubormoqchi bo'lgan murojaat yoki savolingizni yozib yuboring:</b>"
+
         context.user_data["sub_awaiting_msg"] = True
-        await query.message.reply_text(
-            "📩 <b>Kanal ma'muriyatiga yubormoqchi bo'lgan murojaat yoki savolingizni yozib yuboring:</b>",
-            parse_mode="HTML"
-        )
+        await query.message.reply_text(prompt, parse_mode="HTML")
         return
 
     # --- 2. ADMIN DASHBOARD BUTTON CALLBACKS ---
@@ -184,13 +228,13 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handles private text messages with ZERO AI:
+    Handles private text messages:
     - If Admin (ID: 8100325700):
         - Creating post -> publishes directly to channel.
         - Responding to subscriber -> forwards message to subscriber.
         - Otherwise -> shows Admin Dashboard.
     - If Subscriber (Other ID):
-        - Sends fixed text: '@asay_s_blogg kanalining rasmiy boti. Xabaringizni yozib qoldirishingiz mumkin.'
+        - Sends multi-language text based on choice.
         - Relays message directly to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash] buttons.
     """
     if not update.message or not update.message.text:
@@ -241,22 +285,19 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ Xatolik: {e}")
                 return
 
-        # Simple Admin text handler (NO AI)
+        # Simple Admin text handler
         await update.message.reply_text("👑 <b>Admin Paneli — @asay_s_blogg</b>", reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
         return
 
-    # 2. SUBSCRIBER LOGIC (Other IDs - ZERO AI)
+    # 2. SUBSCRIBER LOGIC (Other IDs)
     WEEKLY_STATS["messages_received"] += 1
     update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text=user_text, time_str=time_str)
 
-    # A. Send fixed text to subscriber
-    subscriber_fixed_msg = (
-        "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
-        "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin. 🤲"
-    )
-    await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup(), parse_mode="HTML")
+    lang = context.user_data.get("user_lang", "uz")
+    welcome_text, markup = get_subscriber_welcome_data(lang)
+    await update.message.reply_text(welcome_text, reply_markup=markup)
 
-    # B. Relay message to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash]
+    # Relay message to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash]
     try:
         keyboard = InlineKeyboardMarkup([
             [
@@ -293,11 +334,9 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         WEEKLY_STATS["messages_received"] += 1
         update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text="[Ovozli xabar yubordi]", time_str=datetime.now().strftime("%H:%M"))
 
-        subscriber_fixed_msg = (
-            "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
-            "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin. 🤲"
-        )
-        await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup(), parse_mode="HTML")
+        lang = context.user_data.get("user_lang", "uz")
+        welcome_text, markup = get_subscriber_welcome_data(lang)
+        await update.message.reply_text(welcome_text, reply_markup=markup)
 
         try:
             keyboard = InlineKeyboardMarkup([
