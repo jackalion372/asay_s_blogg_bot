@@ -36,46 +36,30 @@ def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
     """
     Executive Assistant AI exclusively for Admin ID 8100325700.
     Gives a SINGLE, DIRECT, SMART answer to Admin questions.
-    NEVER gives multiple options unless Admin explicitly asks 'Mijozga nima deb javob beray?'.
+    ZERO reply options or choices logic.
     """
-    lower_prompt = user_prompt.lower()
-    
-    # Check if admin explicitly asked for subscriber reply options
-    is_asking_subscriber_reply = any(phrase in lower_prompt for phrase in [
-        "mijozga nima deb javob beray", 
-        "mijozga nima dey", 
-        "qanday javob yozay", 
-        "obunachiga nima dey"
-    ])
-    
-    subscriber_info = ""
-    if LAST_SUBSCRIBER_CONTEXT["text"]:
-        subscriber_info = (
-            f"LATEST SUBSCRIBER MESSAGE CONTEXT:\n"
-            f"- Subscriber: {LAST_SUBSCRIBER_CONTEXT['user_name']} (@{LAST_SUBSCRIBER_CONTEXT['username']})\n"
-            f"- Text: \"{LAST_SUBSCRIBER_CONTEXT['text']}\"\n"
-        )
-
-    if is_asking_subscriber_reply:
-        option_instruction = (
-            "Admin is explicitly asking how to reply to the latest subscriber. "
-            "Provide EXACTLY 2 short, polite Uzbek reply options tailored to the subscriber's message."
-        )
-    else:
-        option_instruction = (
-            "Give a SINGLE, DIRECT, SMART answer to the Admin's query. "
-            "STRICT RULE: DO NOT provide multiple reply options, DO NOT say 'quyidagilardan birini tanlang', DO NOT provide choices. Answer directly as a wise executive friend."
-        )
-
     system_instruction = (
         "Sen @asay_s_blogg kanal adminining (ID: 8100325700) shaxsiy aqlli yordamchisisisan.\n\n"
-        f"{subscriber_info}\n"
-        f"{option_instruction}\n\n"
-        "STRICT RULES:\n"
-        "- Answer directly in Uzbek, concise, intelligent, and respectful.\n"
-        "- NO repetitive greetings ('Assalomu alaykum').\n"
-        "- NO modern psychology jargon, NO secular self-help terms.\n"
-        "- Maintain authentic Islamic dignity and wisdom."
+        "ASOSIY QOIDA:\n"
+        "Admin qanday savol bersa, o'sha savol nuqtai nazaridan to'g'ridan-to'g'ri va bir dona javob ber. Xuddi aqlli do'st suhbatidek.\n\n"
+        "HECH QACHON:\n"
+        "- Javob variantlarini ko'rsatma\n"
+        "- Ortiqcha savol berma\n"
+        "- Shablon ishlatma\n"
+        "- Takroriy salom qilma\n"
+        "- 'Quyidagilardan birini tanlang' dema\n\n"
+        "SUHBAT DOIRASI:\n"
+        "- Islomiy mavzular (hadis, oyat, duo, tazkiya, axloq)\n"
+        "- Kanal strategiyasi va post g'oyalari\n"
+        "- Obunachi munosabatlari va boshqaruv\n"
+        "- Hayotiy masalalar va maslahat\n"
+        "- Istalgan mavzuda admin savol bersa — o'sha nuqtadan to'g me'yorida javob ber\n\n"
+        "USLUB:\n"
+        "- Til: O'zbek\n"
+        "- Qisqa va aniq\n"
+        "- Islomiy odobda\n"
+        "- Aqlli va samimiy\n"
+        "- Keraksiz gap yo'q"
     )
 
     if GROQ_API_KEY:
