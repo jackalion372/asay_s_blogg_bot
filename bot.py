@@ -234,8 +234,8 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         - Responding to subscriber -> forwards message to subscriber.
         - Otherwise -> shows Admin Dashboard.
     - If Subscriber (Other ID):
-        - Sends multi-language text based on choice.
-        - Relays message directly to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash] buttons.
+        - If language not selected yet -> prompts language selection.
+        - Otherwise -> sends multi-language welcome text and relays message to Admin ID 8100325700.
     """
     if not update.message or not update.message.text:
         return
@@ -293,9 +293,14 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     WEEKLY_STATS["messages_received"] += 1
     update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text=user_text, time_str=time_str)
 
-    lang = context.user_data.get("user_lang", "uz")
-    welcome_text, markup = get_subscriber_welcome_data(lang)
-    await update.message.reply_text(welcome_text, reply_markup=markup)
+    # Check if subscriber has selected language
+    if "user_lang" not in context.user_data:
+        lang_prompt = "🌐 <b>Muloqot tilini tanlang / Select language / Выберите язык:</b>"
+        await update.message.reply_text(lang_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+    else:
+        lang = context.user_data["user_lang"]
+        welcome_text, markup = get_subscriber_welcome_data(lang)
+        await update.message.reply_text(welcome_text, reply_markup=markup)
 
     # Relay message to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash]
     try:
@@ -334,9 +339,13 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         WEEKLY_STATS["messages_received"] += 1
         update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text="[Ovozli xabar yubordi]", time_str=datetime.now().strftime("%H:%M"))
 
-        lang = context.user_data.get("user_lang", "uz")
-        welcome_text, markup = get_subscriber_welcome_data(lang)
-        await update.message.reply_text(welcome_text, reply_markup=markup)
+        if "user_lang" not in context.user_data:
+            lang_prompt = "🌐 <b>Muloqot tilini tanlang / Select language / Выберите язык:</b>"
+            await update.message.reply_text(lang_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+        else:
+            lang = context.user_data["user_lang"]
+            welcome_text, markup = get_subscriber_welcome_data(lang)
+            await update.message.reply_text(welcome_text, reply_markup=markup)
 
         try:
             keyboard = InlineKeyboardMarkup([
