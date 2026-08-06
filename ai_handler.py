@@ -5,26 +5,12 @@ from config import GROQ_API_KEY, OPENAI_API_KEY, EXACT_ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
-# Context memory for the last subscriber message
-LAST_SUBSCRIBER_CONTEXT = {
-    "user_name": "",
-    "username": "",
-    "user_id": "",
-    "text": "",
-    "time": ""
-}
-
+# Context memory for tracking subscribers
 SUBSCRIBERS_DB = {}  # user_id -> {"name": str, "username": str, "last_seen": str, "msg_count": int}
 
 
 def update_subscriber_context(user_name: str, username: str, user_id: str, text: str, time_str: str):
-    """Updates context memory with the latest subscriber message."""
-    LAST_SUBSCRIBER_CONTEXT["user_name"] = user_name
-    LAST_SUBSCRIBER_CONTEXT["username"] = username
-    LAST_SUBSCRIBER_CONTEXT["user_id"] = user_id
-    LAST_SUBSCRIBER_CONTEXT["text"] = text
-    LAST_SUBSCRIBER_CONTEXT["time"] = time_str
-
+    """Tracks unique subscribers and their latest message time."""
     if user_id not in SUBSCRIBERS_DB:
         SUBSCRIBERS_DB[user_id] = {"name": user_name, "username": username, "last_seen": time_str, "msg_count": 1}
     else:
@@ -34,9 +20,9 @@ def update_subscriber_context(user_name: str, username: str, user_id: str, text:
 
 def get_admin_ai_response(user_prompt: str, admin_name: str) -> str:
     """
-    Pure ChatGPT-style conversational AI exclusively for Admin ID 8100325700.
-    Talks naturally and intelligently about any topic/task, just like ChatGPT.
-    ZERO reply options or robotic constraints.
+    Fresh, updated AI integration using Groq Llama-3.3-70B exclusively for Admin ID 8100325700.
+    - Pure ChatGPT-style natural conversation.
+    - NO 2-option choices, NO multi-choice lists, NO robotic templates.
     """
     system_instruction = (
         "Sen @asay_s_blogg kanali adminining shaxsiy intellektual Sun'iy Intellekt (AI) yordamchisisisan.\n\n"
