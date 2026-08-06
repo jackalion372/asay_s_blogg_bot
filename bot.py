@@ -38,7 +38,7 @@ def get_subscriber_markup() -> InlineKeyboardMarkup:
 
 
 def get_admin_dashboard_markup() -> InlineKeyboardMarkup:
-    """Returns Admin Dashboard Inline Keyboard with 6 professional sections."""
+    """Returns Admin Dashboard Inline Keyboard with 5 sections."""
     keyboard = [
         [
             InlineKeyboardButton("📊 Statistika", callback_data="admin_stats"),
@@ -49,8 +49,7 @@ def get_admin_dashboard_markup() -> InlineKeyboardMarkup:
             InlineKeyboardButton("👥 Obunachilar", callback_data="admin_subscribers")
         ],
         [
-            InlineKeyboardButton("⚙️ Sozlamalar", callback_data="admin_settings"),
-            InlineKeyboardButton("🔄 Post Yuborish", callback_data="admin_trigger_post")
+            InlineKeyboardButton("⚙️ Sozlamalar", callback_data="admin_settings")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -63,17 +62,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = check_is_admin(user_id)
 
     if is_admin:
-        welcome_text = (
-            f"👑 <b>Boshqaruv Paneli — Admin {user.first_name}!</b>\n\n"
-            f"📌 Kanal: <code>{CHANNEL_ID}</code>\n"
-            f"⏰ Reja: <b>09:00 & 21:00</b> | Juma Maxsus: <b>07:45</b>\n\n"
-            f"Kerakli bo'limni tanlang yoki topshirig'ingizni yozing:"
-        )
+        welcome_text = "👑 <b>Admin Paneli — @asay_s_blogg</b>"
         await update.message.reply_text(welcome_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
     else:
         welcome_text = (
-            "<b>@asay_s_blogg kanalining rasmiy boti.</b>\n\n"
-            "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin."
+            "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
+            "@asay_s_blogg kanalining rasmiy botiga xush kelibsiz.\n\n"
+            "Bot avtomatik javob bermaydi.\n"
+            "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
         )
         await update.message.reply_text(welcome_text, reply_markup=get_subscriber_markup(), parse_mode="HTML")
 
@@ -102,10 +98,10 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
 
     if data == "admin_stats":
         stats_text = (
-            "📊 <b>Boshqaruv Statistikasi:</b>\n\n"
-            f"👤 <b>Murojaat qilgan obunachilar:</b> {len(SUBSCRIBERS_DB)} ta\n"
-            f"📝 <b>Bugungi chiqarilgan postlar:</b> {WEEKLY_STATS['posts_sent']} ta\n"
-            f"💬 <b>Haftalik xabarlar soni:</b> {WEEKLY_STATS['messages_received']} ta\n"
+            "📊 <b>Statistika Bo'limi:</b>\n\n"
+            f"👤 <b>Jami obunachi soni:</b> {len(SUBSCRIBERS_DB)} ta\n"
+            f"📝 <b>Bugungi postlar soni:</b> {WEEKLY_STATS['posts_sent']} ta\n"
+            f"📈 <b>Haftalik o'sish:</b> {WEEKLY_STATS['messages_received']} ta murojaat\n"
             f"⚡ <b>Server holati:</b> 24/7 Bulutda Faol (Render)"
         )
         await query.message.reply_text(stats_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
@@ -113,11 +109,11 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
     elif data == "admin_create_post":
         context.user_data["admin_creating_post"] = True
         post_options_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📹 HD Video Bilan", callback_data="post_mode_video")],
-            [InlineKeyboardButton("📝 Faqat Matn", callback_data="post_mode_text")]
+            [InlineKeyboardButton("📹 Video Bilan", callback_data="post_mode_video")],
+            [InlineKeyboardButton("📝 Videosiz (Faqat Matn)", callback_data="post_mode_text")]
         ])
         await query.message.reply_text(
-            "✏️ <b>Kanalga yuboriladigan post matnini kiriting yoki media turini tanlang:</b>",
+            "✏️ <b>Post Yaratish Bo'limi:</b>\n\nPost matnini yuboring yoki media turini tanlang:",
             reply_markup=post_options_keyboard,
             parse_mode="HTML"
         )
@@ -132,50 +128,40 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
 
     elif data == "admin_reports":
         report_text = (
-            "📋 <b>Haftalik Hisobotlar Bo'limi:</b>\n\n"
-            f"• <b>Oxirgi hisobot:</b> Har Yakshanba 20:00 da avtomatik yuboriladi.\n"
-            f"• <b>Joriy haftada postlar:</b> {WEEKLY_STATS['posts_sent']} ta\n"
-            f"• <b>Joriy haftada kelgan xabarlar:</b> {WEEKLY_STATS['messages_received']} ta\n"
+            "📋 <b>Hisobotlar Bo'limi:</b>\n\n"
+            f"• <b>Haftalik hisobot:</b> Har Yakshanba 20:00 da avtomatik yuboriladi.\n"
+            f"• <b>O'tgan haftaning statistikasi:</b> {WEEKLY_STATS['posts_sent']} ta post, {WEEKLY_STATS['messages_received']} ta murojaat.\n"
             f"• <b>Manba sahihligi:</b> 100% Sahih al-Buxoriy & Muslim"
         )
         await query.message.reply_text(report_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
 
     elif data == "admin_subscribers":
         if not SUBSCRIBERS_DB:
-            sub_list_text = "👥 <b>Obunachilar Bo'limi:</b>\n\nHozircha murojaat qilgan obunachilar yo'q."
+            sub_list_text = "👥 <b>Obunachilar Bo'limi:</b>\n\nHozircha murojaat qilgan obunachilar ro'yxati bo'sh."
         else:
             sub_lines = []
             for uid, info in list(SUBSCRIBERS_DB.items())[-10:]:
-                sub_lines.append(f"• <b>{info['name']}</b> (@{info['username']} / ID: <code>{uid}</code>) — Oxirgi xabar: {info['last_seen']}")
-            sub_list_text = "👥 <b>Oxirgi Murojaat Qilgan Obunachilar:</b>\n\n" + "\n".join(sub_lines)
+                sub_lines.append(f"• <b>{info['name']}</b> (@{info['username']} / ID: <code>{uid}</code>) — Oxirgi xabar vaqti: {info['last_seen']}")
+            sub_list_text = "👥 <b>Obunachilar Bo'limi (Murojaat qilganlar ro'yxati):</b>\n\n" + "\n".join(sub_lines)
 
         await query.message.reply_text(sub_list_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
 
     elif data == "admin_settings":
         settings_text = (
-            "⚙️ <b>Tizim Sozlamalari:</b>\n\n"
-            f"⏰ <b>Kunlik postlar vaqti:</b> 09:00 & 21:00 ({POST_TIMEZONE})\n"
-            f"🕌 <b>Juma maxsus posti:</b> Juma 07:45\n"
-            f"📊 <b>Hisobot vaqti:</b> Yakshanba 20:00\n"
+            "⚙️ <b>Sozlamalar Bo'limi:</b>\n\n"
+            f"⏰ <b>Post vaqtlarini o'zgartirish:</b> 09:00 & 21:00 ({POST_TIMEZONE})\n"
+            f"🕌 <b>Juma posti vaqti:</b> Juma 07:45\n"
+            f"📝 <b>Xabar shablonlarini tahrirlash:</b> Rasmiy Sahih Baza\n"
             f"🤖 <b>AI Modeli:</b> Groq Llama-3.3-70B\n"
             f"🔒 <b>Admin ID:</b> <code>{EXACT_ADMIN_ID}</code>"
         )
         await query.message.reply_text(settings_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
 
-    elif data == "admin_trigger_post":
-        await query.message.reply_text("⏳ Post yaratilmoqda va kanalga yuborilmoqda...")
-        post_content = generate_daily_post(slot="morning")
-        success = await send_post_to_channel(post_content, attach_media=True)
-        if success:
-            await query.message.reply_text("✅ Post kanalga muvaffaqiyatli joylashtirildi!")
-        else:
-            await query.message.reply_text("❌ Post yuborishda xatolik.")
-
     elif data.startswith("reply_user_"):
         target_user_id = data.replace("reply_user_", "")
         context.user_data["reply_target_user_id"] = target_user_id
         cancel_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Aloqani Yakunlash", callback_data=f"cancel_reply_{target_user_id}")]
+            [InlineKeyboardButton("❌ Yakunlash", callback_data=f"cancel_reply_{target_user_id}")]
         ])
         await query.message.reply_text(
             "✍️ <b>Obunachiga yuboriladigan matningizni yozing:</b>",
@@ -185,7 +171,7 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
 
     elif data.startswith("cancel_reply_"):
         context.user_data.pop("reply_target_user_id", None)
-        await query.message.reply_text("❌ Obunachi bilan aloqa yakunlandi.")
+        await query.message.reply_text("❌ Aloqa yakunlandi.")
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,7 +181,11 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         - Creating post / responding to subscriber -> delivers message.
         - 'Mijozga nima deb javob beray?' or general queries -> AI Executive Assistant.
     - If Subscriber (Other ID):
-        - Sends fixed text: '@asay_s_blogg kanalining rasmiy boti. Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin.'
+        - Sends exact fixed text:
+          'Assalomu alaykum va rahmatullahi va barakatuh! 🌙
+           @asay_s_blogg kanalining rasmiy botiga xush kelibsiz.
+           Bot avtomatik javob bermaydi.
+           Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲'
         - Relays message to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash] buttons.
     """
     if not update.message or not update.message.text:
@@ -256,10 +246,12 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     WEEKLY_STATS["messages_received"] += 1
     update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text=user_text, time_str=time_str)
 
-    # A. Send fixed text to subscriber
+    # A. Send exact fixed text to subscriber
     subscriber_fixed_msg = (
-        "@asay_s_blogg kanalining rasmiy boti.\n"
-        "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin."
+        "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
+        "@asay_s_blogg kanalining rasmiy botiga xush kelibsiz.\n\n"
+        "Bot avtomatik javob bermaydi.\n"
+        "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
     )
     await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup())
 
@@ -301,8 +293,10 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text="[Ovozli xabar yubordi]", time_str=datetime.now().strftime("%H:%M"))
 
         subscriber_fixed_msg = (
-            "@asay_s_blogg kanalining rasmiy boti.\n"
-            "Bot avtomatik javob bermaydi. Xabaringizni yozib qoldirishingiz mumkin."
+            "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
+            "@asay_s_blogg kanalining rasmiy botiga xush kelibsiz.\n\n"
+            "Bot avtomatik javob bermaydi.\n"
+            "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
         )
         await update.message.reply_text(subscriber_fixed_msg, reply_markup=get_subscriber_markup())
 
@@ -355,7 +349,7 @@ def build_application() -> Application:
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", start_command))
-    application.add_handler(CommandHandler("post_now", post_morning_command))
+    application.add_handler(CommandHandler("post_now", start_command))
 
     application.add_handler(CallbackQueryHandler(handle_callback_queries))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
