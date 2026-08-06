@@ -66,8 +66,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(welcome_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
     else:
         welcome_text = (
-            "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
-            "@asay_s_blogg kanalining rasmiy botiga xush kelibsiz.\n\n"
+            "Assalomu alaykum! 🌙\n\n"
+            "@asay_s_blogg kanaliga xush kelibsiz.\n\n"
             "Bot avtomatik javob bermaydi.\n"
             "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
         )
@@ -179,11 +179,11 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handles private text messages:
     - If Telegram ID == 8100325700 (Admin):
         - Creating post / responding to subscriber -> delivers message.
-        - 'Mijozga nima deb javob beray?' or general queries -> AI Executive Assistant.
+        - AI Executive Assistant with exact prompt rules.
     - If Subscriber (Other ID):
         - Sends exact fixed text:
-          'Assalomu alaykum va rahmatullahi va barakatuh! 🌙
-           @asay_s_blogg kanalining rasmiy botiga xush kelibsiz.
+          'Assalomu alaykum! 🌙
+           @asay_s_blogg kanaliga xush kelibsiz.
            Bot avtomatik javob bermaydi.
            Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲'
         - Relays message to Admin ID 8100325700 with [💬 Javob Yozish] & [❌ Yakunlash] buttons.
@@ -239,7 +239,7 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # AI Executive Assistant for Admin
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         ai_reply = get_admin_ai_response(user_prompt=user_text, admin_name=user_name)
-        await update.message.reply_text(ai_reply, reply_markup=get_admin_dashboard_markup())
+        await update.message.reply_text(ai_reply)
         return
 
     # 2. SUBSCRIBER LOGIC (Other IDs)
@@ -248,8 +248,8 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # A. Send exact fixed text to subscriber
     subscriber_fixed_msg = (
-        "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
-        "@asay_s_blogg kanalining rasmiy botiga xush kelibsiz.\n\n"
+        "Assalomu alaykum! 🌙\n\n"
+        "@asay_s_blogg kanaliga xush kelibsiz.\n\n"
         "Bot avtomatik javob bermaydi.\n"
         "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
     )
@@ -293,8 +293,8 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text="[Ovozli xabar yubordi]", time_str=datetime.now().strftime("%H:%M"))
 
         subscriber_fixed_msg = (
-            "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
-            "@asay_s_blogg kanalining rasmiy botiga xush kelibsiz.\n\n"
+            "Assalomu alaykum! 🌙\n\n"
+            "@asay_s_blogg kanaliga xush kelibsiz.\n\n"
             "Bot avtomatik javob bermaydi.\n"
             "Xabaringizni qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
         )
@@ -349,7 +349,6 @@ def build_application() -> Application:
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", start_command))
-    application.add_handler(CommandHandler("post_now", start_command))
 
     application.add_handler(CallbackQueryHandler(handle_callback_queries))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
