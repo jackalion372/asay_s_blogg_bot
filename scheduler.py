@@ -13,15 +13,18 @@ WEEKLY_STATS = {"posts_sent": 0, "messages_received": 0}
 
 
 async def trigger_posting(slot: str = "morning"):
+    from bot import ADMIN_SETTINGS, handle_preview_posting_or_direct
+    if not ADMIN_SETTINGS.get("auto_post", True):
+        logger.info(f"Auto-post is currently DISABLED in admin settings. Skipping {slot} scheduled post.")
+        return
+
     logger.info(f"Executing scheduled task ({slot}): Generating post...")
     try:
         post_content = generate_daily_post(slot=slot)
-        success = await send_post_to_channel(post_content, attach_media=True)
-        if success:
-            WEEKLY_STATS["posts_sent"] += 1
-            logger.info(f"Daily {slot} post published successfully.")
+        await handle_preview_posting_or_direct(post_content, slot=slot)
     except Exception as e:
         logger.error(f"Error during scheduled post generation: {e}")
+
 
 
 async def trigger_friday_special():

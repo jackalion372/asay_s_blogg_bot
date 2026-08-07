@@ -6,7 +6,7 @@ from datetime import datetime
 from aiohttp import web
 import requests
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -23,6 +23,17 @@ from content_generator import generate_daily_post
 from telegram_poster import send_post_to_channel
 
 logger = logging.getLogger(__name__)
+
+
+ADMIN_SETTINGS = {
+    "preview_mode": True,
+    "auto_post": True,
+    "morning_time": "09:00",
+    "evening_time": "21:00",
+}
+
+PENDING_PREVIEW_POST = {}
+BROADCAST_DRAFT = {}
 
 
 def check_is_admin(user_id: str) -> bool:
@@ -51,22 +62,86 @@ def get_multilingual_welcome_prompt() -> str:
     )
 
 
-def get_admin_dashboard_markup() -> InlineKeyboardMarkup:
+def get_admin_reply_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton("📊 Statistika"), KeyboardButton("🔄 Instant Post Yuborish")],
+        [KeyboardButton("✏️ Post Yaratish"), KeyboardButton("👥 Obunachilar Ro'yxati")],
+        [KeyboardButton("⚙️ Sozlamalar")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+def get_admin_settings_inline_keyboard() -> InlineKeyboardMarkup:
+    preview_status = "🟢 YONIQ (ON)" if ADMIN_SETTINGS["preview_mode"] else "🔴 O'CHIQ (OFF)"
+    autopost_status = "🟢 YONIQ (ON)" if ADMIN_SETTINGS["auto_post"] else "🔴 O'CHIQ (OFF)"
+
     keyboard = [
         [
-            InlineKeyboardButton("📊 Statistika", callback_data="admin_stats"),
-            InlineKeyboardButton("✏️ Post Yaratish", callback_data="admin_create_post")
+            InlineKeyboardButton(f"🔍 Preview Rejim: {preview_status}", callback_data="toggle_preview_mode")
         ],
         [
-            InlineKeyboardButton("📋 Hisobotlar", callback_data="admin_reports"),
-            InlineKeyboardButton("👥 Obunachilar", callback_data="admin_subscribers")
+            InlineKeyboardButton(f"🤖 Avto-Post: {autopost_status}", callback_data="toggle_auto_post")
         ],
         [
-            InlineKeyboardButton("⚙️ Sozlamalar", callback_data="admin_settings"),
-            InlineKeyboardButton("🔄 Post Yuborish", callback_data="admin_trigger_post")
+            InlineKeyboardButton("📢 E'lon Tarqatish (Broadcast)", callback_data="admin_start_broadcast")
+        ],
+        [
+            InlineKeyboardButton(f"⏰ Post Vaqtlari: {ADMIN_SETTINGS['morning_time']} & {ADMIN_SETTINGS['evening_time']}", callback_data="admin_set_post_times")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_admin_settings_text() -> str:
+    p_status = "🟢 YONIQ (ON)" if ADMIN_SETTINGS["preview_mode"] else "🔴 O'CHIQ (OFF)"
+    a_status = "🟢 YONIQ (ON)" if ADMIN_SETTINGS["auto_post"] else "🔴 O'CHIQ (OFF)"
+    return (
+        "⚙️ <b>Admin Sozlamalari Paneli:</b>\n\n"
+        f"🔍 <b>Post Preview Rejimi:</b> {p_status}\n"
+        f"🤖 <b>Avtomatik Post Rejimi:</b> {a_status}\n"
+        f"⏰ <b>Post Chiqish Vaqtlari:</b> {ADMIN_SETTINGS['morning_time']} va {ADMIN_SETTINGS['evening_time']} ({POST_TIMEZONE})\n"
+        f"📢 <b>Obunachilar Soni:</b> {len(SUBSCRIBERS_DB)} ta\n"
+        f"🔒 <b>Admin ID:</b> <code>{EXACT_ADMIN_ID}</code>\n\n"
+        "<i>Quyidagi tugmalar orqali sozlamalarni o'zgartirishingiz mumkin:</i>"
+    )
+
+
+async def handle_preview_posting_or_direct(post_content: str, slot: str = "morning", bot_app=None):
+    from telegram_poster import send_post_to_channel
+
+    if ADMIN_SETTINGS.get("preview_mode", True):
+        PENDING_PREVIEW_POST["content"] = post_content
+        PENDING_PREVIEW_POST["slot"] = slot
+
+        preview_markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Kanalga Joylash", callback_data="approve_preview_post"),
+                InlineKeyboardButton("🔄 Qayta Yaratish", callback_data="regenerate_preview_post")
+            ],
+            [
+                InlineKeyboardButton("❌ Bekor Qilish", callback_data="cancel_preview_post")
+            ]
+        ])
+        preview_msg_text = (
+            f"🔍 <b>[PREVIEW REJIM] Yangi Post Tayyorlandi:</b>\n\n"
+            f"{post_content}\n\n"
+            f"───────────────────\n"
+            f"<i>Kanalga joylash uchun quyidagi tugmani bosing:</i>"
+        )
+        try:
+            if bot_app and hasattr(bot_app, "bot"):
+                await bot_app.bot.send_message(chat_id=EXACT_ADMIN_ID, text=preview_msg_text, reply_markup=preview_markup, parse_mode="HTML")
+            else:
+                from telegram import Bot
+                async with Bot(token=BOT_TOKEN) as temp_bot:
+                    await temp_bot.send_message(chat_id=EXACT_ADMIN_ID, text=preview_msg_text, reply_markup=preview_markup, parse_mode="HTML")
+        except Exception as err:
+            logger.error(f"Error sending preview message to admin: {err}")
+    else:
+        success = await send_post_to_channel(post_content, attach_media=True)
+        if success:
+            WEEKLY_STATS["posts_sent"] += 1
+            logger.info(f"Daily {slot} post published directly to channel.")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,8 +150,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = check_is_admin(user_id)
 
     if is_admin:
-        welcome_text = "👑 <b>Admin Paneli — @asay_s_blogg</b>"
-        await update.message.reply_text(welcome_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
+        welcome_text = "👑 <b>Admin Paneli — @asay_s_blogg</b>\n\nQuyidagi menyu tugmalaridan foydalanishingiz mumkin:"
+        await update.message.reply_text(welcome_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
     else:
         welcome_prompt = get_multilingual_welcome_prompt()
         await update.message.reply_text(welcome_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
@@ -98,25 +173,12 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith("lang_"):
         selected_lang = data.replace("lang_", "")
         context.user_data["user_lang"] = selected_lang
-
         if selected_lang == "en":
-            confirm_text = (
-                "✅ <b>Language set to English!</b>\n\n"
-                "You can now type and send your messages or questions directly to the channel administration anytime.\n"
-                "<i>(Tip: Send /language anytime to change settings)</i>"
-            )
+            confirm_text = "✅ <b>Language set to English!</b>\n\nYou can now type and send your messages or questions directly to the channel administration anytime."
         elif selected_lang == "ru":
-            confirm_text = (
-                "✅ <b>Язык установлен на Русский!</b>\n\n"
-                "Теперь вы можете напрямую писать ваши сообщения администратору в любое время.\n"
-                "<i>(Совет: Напишите /language в любое время для смены языка)</i>"
-            )
+            confirm_text = "✅ <b>Язык установлен на Русский!</b>\n\nТеперь вы можете напрямую писать ваши сообщения администратору в любое время."
         else:
-            confirm_text = (
-                "✅ <b>Muloqot tili O'zbekcha qilib tanlandi!</b>\n\n"
-                "Endi kanal ma'muriyatiga o'z murojaatingiz yoki savolingizni bevosita yozishingiz mumkin.\n"
-                "<i>(Eslatma: Tilni o'zgartirish uchun istalgan vaqtda /language buyrug'ini yuboring)</i>"
-            )
+            confirm_text = "✅ <b>Muloqot tili O'zbekcha qilib tanlandi!</b>\n\nEndi kanal ma'muriyatiga o'z murojaatingiz yoki savolingizni bevosita yozishingiz mumkin."
 
         await query.edit_message_text(confirm_text, parse_mode="HTML")
         return
@@ -124,86 +186,147 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
     if not is_admin:
         return
 
-    if data == "admin_stats":
-        stats_text = (
-            "📊 <b>Statistika Bo'limi:</b>\n\n"
-            f"👤 <b>Jami obunachi soni:</b> {len(SUBSCRIBERS_DB)} ta\n"
-            f"📝 <b>Bugungi postlar soni:</b> {WEEKLY_STATS['posts_sent']} ta\n"
-            f"📈 <b>Haftalik murojaatlar:</b> {WEEKLY_STATS['messages_received']} ta\n"
-            f"⚡ <b>Server holati:</b> 24/7 Bulutda Faol (Render)"
+    if data == "toggle_preview_mode":
+        ADMIN_SETTINGS["preview_mode"] = not ADMIN_SETTINGS["preview_mode"]
+        status_str = "🟢 YONIQ" if ADMIN_SETTINGS["preview_mode"] else "🔴 O'CHIQ"
+        await query.answer(f"Preview rejim {status_str} qilindi!", show_alert=True)
+        await query.edit_message_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
+        return
+
+    if data == "toggle_auto_post":
+        ADMIN_SETTINGS["auto_post"] = not ADMIN_SETTINGS["auto_post"]
+        status_str = "🟢 YONIQ" if ADMIN_SETTINGS["auto_post"] else "🔴 O'CHIQ"
+        await query.answer(f"Avto-post rejim {status_str} qilindi!", show_alert=True)
+        await query.edit_message_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
+        return
+
+    if data == "approve_preview_post":
+        if "content" in PENDING_PREVIEW_POST:
+            content = PENDING_PREVIEW_POST.pop("content")
+            await query.edit_message_text("⏳ Post kanalga joylashtirilmoqda...")
+            success = await send_post_to_channel(content, attach_media=True)
+            if success:
+                WEEKLY_STATS["posts_sent"] += 1
+                await query.edit_message_text("✅ Post kanalga muvaffaqiyatli joylashtirildi!")
+            else:
+                await query.edit_message_text("❌ Kanalga joylashtirishda xatolik yuz berdi.")
+        else:
+            await query.edit_message_text("❌ Tasdiqlanadigan post topilmadi.")
+        return
+
+    if data == "regenerate_preview_post":
+        await query.edit_message_text("⏳ Yangi post generatsiya qilinmoqda...")
+        new_content = generate_daily_post()
+        PENDING_PREVIEW_POST["content"] = new_content
+        preview_markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Kanalga Joylash", callback_data="approve_preview_post"),
+                InlineKeyboardButton("🔄 Qayta Yaratish", callback_data="regenerate_preview_post")
+            ],
+            [
+                InlineKeyboardButton("❌ Bekor Qilish", callback_data="cancel_preview_post")
+            ]
+        ])
+        preview_msg_text = (
+            f"🔍 <b>[YANGILANGAN PREVIEW] Post Tayyorlandi:</b>\n\n"
+            f"{new_content}\n\n"
+            f"───────────────────\n"
+            f"<i>Kanalga joylash uchun quyidagi tugmani bosing:</i>"
         )
-        await query.message.reply_text(stats_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
+        await query.edit_message_text(preview_msg_text, reply_markup=preview_markup, parse_mode="HTML")
+        return
+
+    if data == "cancel_preview_post":
+        PENDING_PREVIEW_POST.clear()
+        await query.edit_message_text("❌ Post bekor qilindi va o'chirildi.")
+        return
+
+    if data == "admin_start_broadcast":
+        context.user_data["admin_awaiting_broadcast"] = True
+        cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Bekor Qilish", callback_data="cancel_broadcast")]])
+        await query.message.reply_text(
+            "📢 <b>Obunachilarga e'lon/xabar yuborish:</b>\n\nBarcha obunachilarga yubormoqchi bo'lgan xabaringizni yozib yuboring:",
+            reply_markup=cancel_markup,
+            parse_mode="HTML"
+        )
+        return
+
+    if data == "confirm_broadcast":
+        if "text" in BROADCAST_DRAFT:
+            b_text = BROADCAST_DRAFT.pop("text")
+            await query.edit_message_text("⏳ E'lon barcha obunachilarga tarqatilmoqda...")
+            success_count = 0
+            failed_count = 0
+            for target_uid in list(SUBSCRIBERS_DB.keys()):
+                try:
+                    await context.bot.send_message(chat_id=target_uid, text=b_text)
+                    success_count += 1
+                except:
+                    failed_count += 1
+            await query.edit_message_text(f"✅ <b>E'lon tarqatildi!</b>\n👥 <b>Yuborildi:</b> {success_count} ta\n⚠️ <b>Yetib barmadi:</b> {failed_count} ta", parse_mode="HTML")
+        else:
+            await query.edit_message_text("❌ Tarqatiladigan e'lon topilmadi.")
+        return
+
+    if data == "cancel_broadcast":
+        context.user_data.pop("admin_awaiting_broadcast", None)
+        BROADCAST_DRAFT.clear()
+        await query.edit_message_text("❌ E'lon yuborish bekor qilindi.")
+        return
+
+    if data == "admin_set_post_times":
+        time_options = InlineKeyboardMarkup([
+            [InlineKeyboardButton("08:00 & 20:00", callback_data="set_time_08_20"), InlineKeyboardButton("09:00 & 21:00", callback_data="set_time_09_21")],
+            [InlineKeyboardButton("10:00 & 22:00", callback_data="set_time_10_22"), InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_settings")]
+        ])
+        await query.edit_message_text(f"⏰ <b>Vaqt tanlang:</b>\nHozirgi: <b>{ADMIN_SETTINGS['morning_time']}</b> & <b>{ADMIN_SETTINGS['evening_time']}</b>", reply_markup=time_options, parse_mode="HTML")
+        return
+
+    if data.startswith("set_time_"):
+        pair = data.replace("set_time_", "")
+        if pair == "08_20": ADMIN_SETTINGS["morning_time"], ADMIN_SETTINGS["evening_time"] = "08:00", "20:00"
+        elif pair == "09_21": ADMIN_SETTINGS["morning_time"], ADMIN_SETTINGS["evening_time"] = "09:00", "21:00"
+        elif pair == "10_22": ADMIN_SETTINGS["morning_time"], ADMIN_SETTINGS["evening_time"] = "10:00", "22:00"
+        await query.answer("Vaqt o'zgartirildi!", show_alert=True)
+        await query.edit_message_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
+        return
+
+    if data == "admin_stats":
+        stats_text = f"📊 <b>Statistika:</b>\n\n👤 <b>Jami obunachi:</b> {len(SUBSCRIBERS_DB)}\n📝 <b>Bugungi post:</b> {WEEKLY_STATS['posts_sent']}"
+        await query.message.reply_text(stats_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
 
     elif data == "admin_create_post":
         context.user_data["admin_creating_post"] = True
         post_options_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📹 Video Bilan", callback_data="post_mode_video")],
-            [InlineKeyboardButton("📝 Videosiz (Faqat Matn)", callback_data="post_mode_text")]
+            [InlineKeyboardButton("📝 Videosiz", callback_data="post_mode_text")]
         ])
-        await query.message.reply_text(
-            "✏️ <b>Post Yaratish Bo'limi:</b>\n\nPost matnini yuboring yoki media turini tanlang:",
-            reply_markup=post_options_keyboard,
-            parse_mode="HTML"
-        )
+        await query.message.reply_text("✏️ <b>Post turini tanlang:</b>", reply_markup=post_options_keyboard, parse_mode="HTML")
 
     elif data == "post_mode_video":
         context.user_data["post_with_video"] = True
-        await query.message.reply_text("📹 Post matnini yuboring (HD tabiat videosi bilan joylanadi):")
+        await query.message.reply_text("📹 Post matnini yuboring:")
 
     elif data == "post_mode_text":
         context.user_data["post_with_video"] = False
-        await query.message.reply_text("📝 Post matnini yuboring (faqat matn joylanadi):")
-
-    elif data == "admin_reports":
-        report_text = (
-            "📋 <b>Hisobotlar Bo'limi:</b>\n\n"
-            f"• <b>Haftalik hisobot:</b> Har Yakshanba 20:00 da avtomatik yuboriladi.\n"
-            f"• <b>O'tgan haftaning statistikasi:</b> {WEEKLY_STATS['posts_sent']} ta post, {WEEKLY_STATS['messages_received']} ta murojaat.\n"
-            f"• <b>Manba sahihligi:</b> 100% Sahih al-Buxoriy & Muslim"
-        )
-        await query.message.reply_text(report_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
+        await query.message.reply_text("📝 Post matnini yuboring:")
 
     elif data == "admin_subscribers":
-        if not SUBSCRIBERS_DB:
-            sub_list_text = "👥 <b>Obunachilar Bo'limi:</b>\n\nHozircha murojaat qilgan obunachilar ro'yxati bo'sh."
-        else:
-            sub_lines = []
-            for uid, info in list(SUBSCRIBERS_DB.items())[-10:]:
-                sub_lines.append(f"• <b>{info['name']}</b> (@{info['username']} / ID: <code>{uid}</code>) — Oxirgi xabar vaqti: {info['last_seen']}")
-            sub_list_text = "👥 <b>Obunachilar Bo'limi (Murojaat qilganlar ro'yxati):</b>\n\n" + "\n".join(sub_lines)
-
-        await query.message.reply_text(sub_list_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
+        sub_list_text = "👥 <b>Obunachilar:</b> " + (f"{len(SUBSCRIBERS_DB)} ta." if SUBSCRIBERS_DB else "Bo'sh.")
+        await query.message.reply_text(sub_list_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
 
     elif data == "admin_settings":
-        settings_text = (
-            "⚙️ <b>Sozlamalar Bo'limi:</b>\n\n"
-            f"⏰ <b>Post vaqtlarini o'zgartirish:</b> 09:00 & 21:00 ({POST_TIMEZONE})\n"
-            f"🕌 <b>Juma posti vaqti:</b> Juma 07:45\n"
-            f"📝 <b>Xabar shablonlarini tahrirlash:</b> Rasmiy Sahih Baza\n"
-            f"🔒 <b>Admin ID:</b> <code>{EXACT_ADMIN_ID}</code>"
-        )
-        await query.message.reply_text(settings_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
+        await query.message.reply_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
 
     elif data == "admin_trigger_post":
-        await query.message.reply_text("⏳ Post yaratilmoqda va kanalga yuborilmoqda...")
+        await query.message.reply_text("⏳ Post yaratilmoqda...")
         post_content = generate_daily_post(slot="morning")
-        success = await send_post_to_channel(post_content, attach_media=True)
-        if success:
-            await query.message.reply_text("✅ Post kanalga muvaffaqiyatli joylashtirildi!")
-        else:
-            await query.message.reply_text("❌ Post yuborishda xatolik.")
+        await handle_preview_posting_or_direct(post_content, slot="morning", bot_app=context.application)
 
     elif data.startswith("reply_user_"):
         target_user_id = data.replace("reply_user_", "")
         context.user_data["reply_target_user_id"] = target_user_id
-        cancel_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Yakunlash", callback_data=f"cancel_reply_{target_user_id}")]
-        ])
-        await query.message.reply_text(
-            "✍️ <b>Obunachiga yuboriladigan matningizni yozing:</b>",
-            reply_markup=cancel_keyboard,
-            parse_mode="HTML"
-        )
+        await query.message.reply_text("✍️ <b>Javobni yozing:</b>", parse_mode="HTML")
 
     elif data.startswith("cancel_reply_"):
         context.user_data.pop("reply_target_user_id", None)
@@ -211,8 +334,7 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
+    if not update.message or not update.message.text: return
 
     user_text = update.message.text.strip()
     chat_type = update.effective_chat.type
@@ -230,32 +352,89 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         lower_text = user_text.lower()
 
+        if user_text == "📊 Statistika":
+            stats_text = (
+                "📊 <b>Statistika Bo'limi:</b>\n\n"
+                f"👤 <b>Jami obunachi soni:</b> {len(SUBSCRIBERS_DB)} ta\n"
+                f"📝 <b>Bugungi postlar soni:</b> {WEEKLY_STATS['posts_sent']} ta\n"
+                f"📈 <b>Haftalik murojaatlar:</b> {WEEKLY_STATS['messages_received']} ta\n"
+                f"⚡ <b>Server holati:</b> 24/7 Bulutda Faol (Render)"
+            )
+            await update.message.reply_text(stats_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
+            return
+
+        if user_text == "🔄 Instant Post Yuborish":
+            await update.message.reply_text("⏳ Post generatsiya qilinmoqda...")
+            post_content = generate_daily_post(slot="morning")
+            await handle_preview_posting_or_direct(post_content, slot="morning", bot_app=context.application)
+            return
+
+        if user_text == "✏️ Post Yaratish":
+            context.user_data["admin_creating_post"] = True
+            post_options_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📹 Video Bilan", callback_data="post_mode_video")],
+                [InlineKeyboardButton("📝 Videosiz", callback_data="post_mode_text")]
+            ])
+            await update.message.reply_text("✏️ <b>Post Yaratish Bo'limi:</b>\n\nPost matnini yuboring yoki media turini tanlang:", reply_markup=post_options_keyboard, parse_mode="HTML")
+            return
+
+        if user_text == "👥 Obunachilar Ro'yxati":
+            if not SUBSCRIBERS_DB:
+                sub_list_text = "👥 <b>Obunachilar Bo'limi:</b>\n\nHozircha murojaat qilgan obunachilar ro'yxati bo'sh."
+            else:
+                sub_lines = []
+                for uid, info in list(SUBSCRIBERS_DB.items())[-10:]:
+                    sub_lines.append(f"• <b>{info['name']}</b> (@{info['username']} / ID: <code>{uid}</code>) — Oxirgi: {info['last_seen']}")
+                sub_list_text = "👥 <b>Obunachilar Bo'limi (Murojaat qilganlar ro'yxati):</b>\n\n" + "\n".join(sub_lines)
+            await update.message.reply_text(sub_list_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
+            return
+
+        if user_text == "⚙️ Sozlamalar":
+            await update.message.reply_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
+            return
+
+        if context.user_data.pop("admin_awaiting_broadcast", False):
+            BROADCAST_DRAFT["text"] = user_text
+            confirm_markup = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Yuborishni Boshlash", callback_data="confirm_broadcast"),
+                    InlineKeyboardButton("❌ Bekor Qilish", callback_data="cancel_broadcast")
+                ]
+            ])
+            await update.message.reply_text(
+                f"📢 <b>E'lonni barcha {len(SUBSCRIBERS_DB)} ta obunachiga yuborishni tasdiqlaysizmi?</b>\n\n"
+                f"<b>Xabar matni:</b>\n{user_text}",
+                reply_markup=confirm_markup,
+                parse_mode="HTML"
+            )
+            return
+
         if context.user_data.pop("admin_creating_post", False):
             attach_v = context.user_data.pop("post_with_video", True)
             await update.message.reply_text("⏳ Yozgan matningiz kanalga joylashtirilmoqda...")
             success = await send_post_to_channel(user_text, attach_media=attach_v)
             if success:
-                await update.message.reply_text("✅ Yozgan matningiz kanalga joylashtirildi!")
+                await update.message.reply_text("✅ Yozgan matningiz kanalga joylashtirildi!", reply_markup=get_admin_reply_keyboard())
             else:
-                await update.message.reply_text("❌ Joylashtirishda xatolik.")
+                await update.message.reply_text("❌ Joylashtirishda xatolik.", reply_markup=get_admin_reply_keyboard())
             return
 
         if any(phrase in lower_text for phrase in ["yozib boldim", "yozib bo'ldim", "boldi kerak emas", "bo'ldi kerak emas", "kerak emas", "bekor qilish"]):
             context.user_data.pop("reply_target_user_id", None)
-            await update.message.reply_text("Obunachi bilan aloqa yakunlandi.")
+            await update.message.reply_text("Obunachi bilan aloqa yakunlandi.", reply_markup=get_admin_reply_keyboard())
             return
 
         if "reply_target_user_id" in context.user_data:
             target_uid = context.user_data.pop("reply_target_user_id")
             try:
                 await context.bot.send_message(chat_id=target_uid, text=user_text)
-                await update.message.reply_text("✅ Yuborildi. Aloqa yakunlandi.")
+                await update.message.reply_text("✅ Yuborildi. Aloqa yakunlandi.", reply_markup=get_admin_reply_keyboard())
                 return
             except Exception as e:
-                await update.message.reply_text(f"❌ Xatolik: {e}")
+                await update.message.reply_text(f"❌ Xatolik: {e}", reply_markup=get_admin_reply_keyboard())
                 return
 
-        await update.message.reply_text("👑 <b>Admin Paneli — @asay_s_blogg</b>", reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
+        await update.message.reply_text("👑 <b>Admin Paneli — @asay_s_blogg</b>", reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
         return
 
     WEEKLY_STATS["messages_received"] += 1
