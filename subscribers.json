@@ -1,0 +1,51 @@
+{
+  "1001": {
+    "name": "Husanboy",
+    "username": "husan_dev",
+    "user_id": "1001",
+    "last_seen": "15:40",
+    "msg_count": 5
+  },
+  "1002": {
+    "name": "Alisher Qodirov",
+    "username": "alisher_uz",
+    "user_id": "1002",
+    "last_seen": "14:20",
+    "msg_count": 2
+  },
+  "1003": {
+    "name": "Sardor Azimov",
+    "username": "sardor_a",
+    "user_id": "1003",
+    "last_seen": "12:15",
+    "msg_count": 1
+  },
+  "1004": {
+    "name": "Jasur Rahimov",
+    "username": "username_yoq",
+    "user_id": "1004",
+    "last_seen": "Kecha",
+    "msg_count": 3
+  },
+  "1005": {
+    "name": "Madina Xudoyorova",
+    "username": "madina_m",
+    "user_id": "1005",
+    "last_seen": "09:30",
+    "msg_count": 4
+  },
+  "1006": {
+    "name": "Bekzod Toirov",
+    "username": "bekzod_t",
+    "user_id": "1006",
+    "last_seen": "08:10",
+    "msg_count": 1
+  },
+  "1007": {
+    "name": "Temur Mirzo",
+    "username": "temur_m",
+    "user_id": "1007",
+    "last_seen": "Kecha",
+    "msg_count": 2
+  }
+}
