@@ -35,19 +35,29 @@ SUBSCRIBERS_DB = load_subscribers_db()
 
 def update_subscriber_context(user_name: str, username: str, user_id: str, text: str, time_str: str):
     user_id_str = str(user_id)
+
+    # Automatically purge demo entries as soon as a real user arrives
+    demo_keys = [uid for uid, info in SUBSCRIBERS_DB.items() if info.get("is_demo", False)]
+    if demo_keys:
+        for dkey in demo_keys:
+            SUBSCRIBERS_DB.pop(dkey, None)
+        logger.info(f"Purged {len(demo_keys)} demo subscriber entries for real user {user_id_str}.")
+
     if user_id_str not in SUBSCRIBERS_DB:
         SUBSCRIBERS_DB[user_id_str] = {
             "name": user_name,
             "username": username,
             "user_id": user_id_str,
             "last_seen": time_str,
-            "msg_count": 1
+            "msg_count": 1,
+            "is_demo": False
         }
     else:
         SUBSCRIBERS_DB[user_id_str]["name"] = user_name
         SUBSCRIBERS_DB[user_id_str]["username"] = username
         SUBSCRIBERS_DB[user_id_str]["last_seen"] = time_str
         SUBSCRIBERS_DB[user_id_str]["msg_count"] += 1
+        SUBSCRIBERS_DB[user_id_str]["is_demo"] = False
     save_subscribers_db()
 
 
