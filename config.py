@@ -14,9 +14,15 @@ PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", DEFAULT_PEXELS_KEY).strip()
 
 POST_TIMEZONE = os.getenv("POST_TIMEZONE", "Asia/Tashkent").strip()
 
+# AI API Keys
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+
 
 def validate_config():
     missing = []
     if not BOT_TOKEN:
         missing.append("BOT_TOKEN")
     return missing
+

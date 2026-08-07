@@ -2,6 +2,7 @@ import os
 import random
 import logging
 from datetime import datetime
+from config import GROQ_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,8 @@ ODD_DAY_DATABASE = [
 ]
 
 
-def generate_daily_post(slot: str = "morning") -> str:
-    """Generates a clean HTML post in ENGLISH with original ARABIC sources intact."""
+def generate_database_post(slot: str = "morning") -> str:
+    """Fallback generator using verified local database."""
     today_number = datetime.now().day
 
     if today_number % 2 == 0:
@@ -92,3 +93,52 @@ def generate_daily_post(slot: str = "morning") -> str:
 
     return html
 
+
+def generate_daily_post(slot: str = "morning") -> str:
+    """Generates a post using Groq AI in English with original Arabic sources intact, falling back to local DB."""
+    if GROQ_API_KEY:
+        try:
+            import requests
+            sys_msg = (
+                "You are an expert content creator for the Telegram channel @asay_s_blogg. "
+                "CRITICAL FORMATTING & LANGUAGE RULES:\n"
+                "1. All reflections, explanations, citations, and lessons MUST BE IN ENGLISH.\n"
+                "2. The source verse or Hadith MUST BE IN ORIGINAL ARABIC SCRIPT with tashkeel.\n"
+                "3. Do NOT use Uzbek or Russian.\n"
+                "4. Output format MUST strictly use Telegram HTML tags:\n"
+                "<blockquote><b>[Arabic text]</b>\n\n"
+                "\"[English translation]\"\n\n"
+                "<b>[Citation e.g. Sahih al-Bukhari #1234 or Surah Name: Verse]</b></blockquote>\n\n"
+                "<i>[A 1-2 sentence inspiring English reflection/lesson]</i>\n\n"
+                "5. Return ONLY the HTML code without markdown code blocks or extra text."
+            )
+            prompt = f"Generate a serene, uplifting, and authentic Islamic/philosophical post for the {slot} slot."
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": sys_msg},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.7
+                },
+                timeout=12
+            )
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"]["content"].strip()
+                if content.startswith("```html"):
+                    content = content[7:]
+                if content.startswith("```"):
+                    content = content[3:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+                if "<blockquote>" in content and "</blockquote>" in content:
+                    logger.info("Successfully generated daily post using Groq AI.")
+                    return content
+        except Exception as err:
+            logger.warning(f"Groq AI generation failed, falling back to local database: {err}")
+
+    return generate_database_post(slot=slot)
