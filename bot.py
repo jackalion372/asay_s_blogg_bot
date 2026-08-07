@@ -194,6 +194,53 @@ def get_channel_subscription_prompt(lang: str) -> tuple:
     return text, markup
 
 
+def get_subscribers_page_keyboard(page: int = 0) -> tuple:
+    items = list(SUBSCRIBERS_DB.items())
+    total_users = len(items)
+    if total_users == 0:
+        text = "👥 <b>Obunachilar Bo'limi:</b>\n\nHozircha ma'lumotlar bazasida obunachilar topilmadi."
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔍 Username/ID/Ism bo'yicha qidirib yozish", callback_data="admin_search_and_msg_user")]
+        ])
+        return text, markup
+
+    per_page = 5
+    max_pages = max(1, (total_users + per_page - 1) // per_page)
+    page = max(0, min(page, max_pages - 1))
+
+    start_idx = page * per_page
+    page_items = items[start_idx:start_idx + per_page]
+
+    lines = []
+    rows = []
+
+    for uid, info in page_items:
+        uname = info.get("username", "yo'q")
+        uname_str = f"@{uname}" if uname and uname != "username_yoq" else "username yo'q"
+        name = info.get("name", "Obunachi")
+        last_seen = info.get("last_seen", "Yaqinda")
+
+        lines.append(f"• <b>{name}</b> ({uname_str} / ID: <code>{uid}</code>) — {last_seen}")
+        rows.append([InlineKeyboardButton(f"💬 {name} ({uname_str})", callback_data=f"reply_user_{uid}")])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("◀️ Avvalgi", callback_data=f"sub_page_{page-1}"))
+    nav_row.append(InlineKeyboardButton(f"📄 {page+1}/{max_pages}", callback_data="sub_page_curr"))
+    if page < max_pages - 1:
+        nav_row.append(InlineKeyboardButton("Keyingi ▶️", callback_data=f"sub_page_{page+1}"))
+
+    rows.append(nav_row)
+    rows.append([InlineKeyboardButton("🔍 Ism, Username yoki ID orqali izlash", callback_data="admin_search_and_msg_user")])
+
+    text = (
+        f"👥 <b>Obunachilar Ro'yxati (Jami saqlanganlar: {total_users} ta):</b>\n\n" +
+        "\n".join(lines) +
+        "\n\n<i>Obunachiga xabar yozish uchun uning tugmasini bir marta bosing:</i>"
+    )
+    return text, InlineKeyboardMarkup(rows)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = str(user.id)
@@ -434,11 +481,22 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
     elif data == "admin_settings":
         await query.message.reply_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
 
+    if data.startswith("sub_page_"):
+        if data == "sub_page_curr":
+            return
+        p_num = int(data.replace("sub_page_", ""))
+        page_text, page_markup = get_subscribers_page_keyboard(page=p_num)
+        try:
+            await query.edit_message_text(page_text, reply_markup=page_markup, parse_mode="HTML")
+        except Exception:
+            pass
+        return
+
     if data == "admin_search_and_msg_user":
         context.user_data["admin_awaiting_target_input"] = True
         await query.message.reply_text(
-            "🔍 <b>Obunachiga bevosita xabar yuborish:</b>\n\n"
-            "Iltimos, obunachining Telegram Username (masalan <code>@username</code>) yoki ID raqamini (masalan <code>123456789</code>) yozib yuboring:",
+            "🔍 <b>Obunachiga bevosita xabar yozish (Qidiruv):</b>\n\n"
+            "Iltimos, obunachining <b>Ismini</b> (masalan <i>Husanboy</i>), <b>Username'ini</b> (masalan <code>@username</code>) yoki <b>ID raqamini</b> yozib yuboring:",
             parse_mode="HTML"
         )
         return
@@ -510,49 +568,44 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if user_text == "👥 Obunachilar Ro'yxati":
-            if not SUBSCRIBERS_DB:
-                sub_list_text = "👥 <b>Obunachilar Bo'limi:</b>\n\nHozircha ma'lumotlar bazasida obunachilar topilmadi."
-                inline_sub_keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔍 Username/ID bo'yicha qidirib yozish", callback_data="admin_search_and_msg_user")]
-                ])
-            else:
-                sub_lines = []
-                keyboard_rows = []
-                for uid, info in list(SUBSCRIBERS_DB.items())[-8:]:
-                    uname_str = f"@{info.get('username')}" if info.get('username') != 'username_yoq' else "username yo'q"
-                    sub_lines.append(f"• <b>{info['name']}</b> ({uname_str} / ID: <code>{uid}</code>) — Oxirgi: {info.get('last_seen', 'Yaqinda')}")
-                    btn_label = f"💬 {info['name']} ({uname_str})"
-                    keyboard_rows.append([InlineKeyboardButton(btn_label, callback_data=f"reply_user_{uid}")])
-
-                keyboard_rows.append([InlineKeyboardButton("🔍 Username yoki ID kiritib yuborish", callback_data="admin_search_and_msg_user")])
-                inline_sub_keyboard = InlineKeyboardMarkup(keyboard_rows)
-
-                sub_list_text = (
-                    f"👥 <b>Obunachilar Ro'yxati (Jami saqlanganlar: {len(SUBSCRIBERS_DB)} ta):</b>\n\n" +
-                    "\n".join(sub_lines) +
-                    "\n\n<i>Obunachiga xabar yuborish uchun tugmalardan foydalaning yoki username/ID orqali qidirib yozing:</i>"
-                )
-            await update.message.reply_text(sub_list_text, reply_markup=inline_sub_keyboard, parse_mode="HTML")
+            page_text, page_markup = get_subscribers_page_keyboard(page=0)
+            await update.message.reply_text(page_text, reply_markup=page_markup, parse_mode="HTML")
             return
 
         if context.user_data.pop("admin_awaiting_target_input", False):
-            clean_input = user_text.replace("@", "").strip().lower()
-            found_uid = None
-            found_info = None
+            query_str = user_text.replace("@", "").strip().lower()
+            matches = []
 
             for uid, info in SUBSCRIBERS_DB.items():
-                if str(uid) == clean_input or str(info.get("username", "")).lower() == clean_input:
-                    found_uid = uid
-                    found_info = info
-                    break
+                uname = str(info.get("username", "")).lower()
+                name = str(info.get("name", "")).lower()
+                if query_str in str(uid) or query_str in uname or query_str in name:
+                    matches.append((uid, info))
 
-            if found_uid:
-                context.user_data["reply_target_user_id"] = found_uid
-                target_name = found_info.get("name", "Obunachi")
-                target_uname = found_info.get("username", "username_yoq")
+            if len(matches) == 1:
+                uid, info = matches[0]
+                context.user_data["reply_target_user_id"] = uid
+                target_uname = f"@{info.get('username')}" if info.get('username') != 'username_yoq' else "username yo'q"
                 await update.message.reply_text(
-                    f"🎯 <b>Obunachi topildi:</b> {target_name} (@{target_uname} / ID: <code>{found_uid}</code>)\n\n"
+                    f"🎯 <b>Obunachi topildi:</b> {info.get('name')} ({target_uname} / ID: <code>{uid}</code>)\n\n"
                     f"Endi unga yubormoqchi bo'lgan xabaringizni yozib yuboring (bekor qilish uchun <i>'bekor qilish'</i> deb yozing):",
+                    parse_mode="HTML"
+                )
+            elif len(matches) > 1:
+                rows = []
+                match_lines = []
+                for uid, info in matches[:6]:
+                    uname = info.get("username", "yo'q")
+                    uname_str = f"@{uname}" if uname != 'username_yoq' else "username yo'q"
+                    match_lines.append(f"• <b>{info.get('name')}</b> ({uname_str} / ID: <code>{uid}</code>)")
+                    rows.append([InlineKeyboardButton(f"💬 {info.get('name')} ({uname_str})", callback_data=f"reply_user_{uid}")])
+
+                search_markup = InlineKeyboardMarkup(rows)
+                await update.message.reply_text(
+                    f"🔍 <b>'{user_text}' bo'yicha {len(matches)} ta obunachi topildi:</b>\n\n" +
+                    "\n".join(match_lines) +
+                    "\n\n<i>Xabar yozmoqchi bo'lgan obunachini tanlang:</i>",
+                    reply_markup=search_markup,
                     parse_mode="HTML"
                 )
             elif user_text.isdigit():
@@ -564,8 +617,8 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 await update.message.reply_text(
-                    f"❌ <b>'{user_text}' bo'yicha obunachi topilmadi.</b>\n\n"
-                    f"Iltimos, qaytadan username (masalan <code>@username</code>) yoki ID raqamini kiriting:",
+                    f"❌ <b>'{user_text}' bo'yicha hech qanday obunachi topilmadi.</b>\n\n"
+                    f"Iltimos, qaytadan ism, username yoki ID raqamini kiriting:",
                     reply_markup=get_admin_reply_keyboard(),
                     parse_mode="HTML"
                 )
