@@ -146,6 +146,54 @@ async def handle_preview_posting_or_direct(post_content: str, slot: str = "morni
             logger.info(f"Daily {slot} post published directly to channel.")
 
 
+async def check_user_subscribed(bot, user_id: str) -> bool:
+    """Dynamically verifies 24/7 if user is a member of CHANNEL_ID using Telegram Bot API."""
+    if check_is_admin(user_id):
+        return True
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
+        return member.status in ["creator", "administrator", "member"]
+    except Exception as e:
+        logger.warning(f"Could not verify channel subscription for {user_id}: {e}")
+        return True
+
+
+def get_channel_subscription_prompt(lang: str) -> tuple:
+    channel_clean = CHANNEL_ID.replace("@", "")
+    channel_url = f"https://t.me/{channel_clean}"
+
+    if lang == "en":
+        text = (
+            "⚠️ <b>Mandatory Channel Subscription Required!</b>\n\n"
+            f"To use this bot and message the admin, you must be a member of our official channel: <b>{CHANNEL_ID}</b>.\n\n"
+            "Please join the channel below and click <b>Verify Subscription</b>."
+        )
+        btn_join = "📢 Join Channel"
+        btn_verify = "✅ Verify Subscription"
+    elif lang == "ru":
+        text = (
+            "⚠️ <b>Требуется обязательная подписка на канал!</b>\n\n"
+            f"Чтобы использовать бота и написать администратору, подпишитесь на наш канал: <b>{CHANNEL_ID}</b>.\n\n"
+            "Пожалуйста, подпишитесь на канал ниже и нажмите <b>Проверить подписку</b>."
+        )
+        btn_join = "📢 Подписаться на канал"
+        btn_verify = "✅ Проверить подписку"
+    else:  # Default Uzbek
+        text = (
+            "⚠️ <b>Rasmiy Kanalga Obuna Bo'lish Shart!</b>\n\n"
+            f"Botdan foydalanish va adminga murojaat yuborish uchun rasmiy kanalimizga obuna bo'lishingiz lozim: <b>{CHANNEL_ID}</b>.\n\n"
+            "Iltimos, quyidagi tugma orqali kanalga a'zo bo'ling va <b>Obunani Tekshirish</b> tugmasini bosing:"
+        )
+        btn_join = "📢 Kanalga A'zo Bo'lish"
+        btn_verify = "✅ Obunani Tekshirish"
+
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_join, url=channel_url)],
+        [InlineKeyboardButton(btn_verify, callback_data="check_channel_sub")]
+    ])
+    return text, markup
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = str(user.id)
@@ -175,14 +223,44 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith("lang_"):
         selected_lang = data.replace("lang_", "")
         context.user_data["user_lang"] = selected_lang
+
+        # Check channel subscription dynamically
+        is_subbed = await check_user_subscribed(context.bot, user_id)
+        if not is_subbed:
+            sub_text, sub_markup = get_channel_subscription_prompt(selected_lang)
+            await query.edit_message_text(sub_text, reply_markup=sub_markup, parse_mode="HTML")
+            return
+
         if selected_lang == "en":
             confirm_text = "✅ <b>Language set to English!</b>\n\nYou can now type and send your messages or questions directly to the channel administration anytime."
         elif selected_lang == "ru":
             confirm_text = "✅ <b>Язык установлен на Русский!</b>\n\nТеперь вы можете напрямую писать ваши сообщения администратору в любое время."
         else:
-            confirm_text = "✅ <b>Muloqot tili O'zbekcha qilib tanlandi!</b>\n\nEndi kanal ma'muriyatiga o'z murojaatingiz yoki savolingizni bevosita yozishingiz mumkin."
+            confirm_text = "✅ <b>Muloqot tili O'zbekcha qilib tanlandi!</b>\n\nEndi kanal ma'muriyatiga o'z murojaatingizni bevosita yozishingiz mumkin."
 
         await query.edit_message_text(confirm_text, parse_mode="HTML")
+        return
+
+    if data == "check_channel_sub":
+        lang = context.user_data.get("user_lang", "uz")
+        is_subbed = await check_user_subscribed(context.bot, user_id)
+
+        if is_subbed:
+            if lang == "en":
+                success_text = "✅ <b>Subscription verified!</b>\n\nYou can now type and send your messages or questions directly to the channel administration anytime."
+            elif lang == "ru":
+                success_text = "✅ <b>Подписка подтверждена!</b>\n\nТеперь вы можете напрямую писать ваши сообщения администратору в любое время."
+            else:
+                success_text = "✅ <b>Obuna tasdiqlandi!</b>\n\nEndi kanal ma'muriyatiga o'z murojaatingizni bevosita yozishingiz mumkin."
+            await query.edit_message_text(success_text, parse_mode="HTML")
+        else:
+            if lang == "en":
+                alert_text = f"❌ You have not joined {CHANNEL_ID} yet. Please join the channel first!"
+            elif lang == "ru":
+                alert_text = f"❌ Вы еще не подписались на {CHANNEL_ID}. Пожалуйста, сначала подпишитесь на канал!"
+            else:
+                alert_text = f"❌ Siz hali {CHANNEL_ID} kanaliga obuna bo'lmadingiz. Iltimos, avval kanalga a'zo bo'ling!"
+            await query.answer(alert_text, show_alert=True)
         return
 
     if not is_admin:
@@ -513,6 +591,14 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     lang = context.user_data["user_lang"]
+
+    # 24/7 Live Subscription Verification via Telegram Bot API
+    is_subbed = await check_user_subscribed(context.bot, user_id)
+    if not is_subbed:
+        sub_text, sub_markup = get_channel_subscription_prompt(lang)
+        await update.message.reply_text(sub_text, reply_markup=sub_markup, parse_mode="HTML")
+        return
+
     if lang == "en":
         ack_text = "📩 <b>Your message has been sent to the admin. We will reply shortly! 🤲</b>"
     elif lang == "ru":
@@ -563,6 +649,14 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
         lang = context.user_data["user_lang"]
+
+        # 24/7 Live Subscription Verification via Telegram Bot API
+        is_subbed = await check_user_subscribed(context.bot, user_id)
+        if not is_subbed:
+            sub_text, sub_markup = get_channel_subscription_prompt(lang)
+            await update.message.reply_text(sub_text, reply_markup=sub_markup, parse_mode="HTML")
+            return
+
         if lang == "en":
             ack_text = "🎤 <b>Your voice message has been sent to the admin. 🤲</b>"
         elif lang == "ru":
