@@ -5,17 +5,50 @@ import urllib.parse
 import requests
 from config import GROQ_API_KEY
 
+import json
+
 logger = logging.getLogger(__name__)
 
-SUBSCRIBERS_DB = {}
+SUBSCRIBERS_DB_FILE = "subscribers.json"
+
+
+def load_subscribers_db() -> dict:
+    if os.path.exists(SUBSCRIBERS_DB_FILE):
+        try:
+            with open(SUBSCRIBERS_DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading subscribers DB: {e}")
+    return {}
+
+
+def save_subscribers_db():
+    try:
+        with open(SUBSCRIBERS_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(SUBSCRIBERS_DB, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving subscribers DB: {e}")
+
+
+SUBSCRIBERS_DB = load_subscribers_db()
 
 
 def update_subscriber_context(user_name: str, username: str, user_id: str, text: str, time_str: str):
-    if user_id not in SUBSCRIBERS_DB:
-        SUBSCRIBERS_DB[user_id] = {"name": user_name, "username": username, "last_seen": time_str, "msg_count": 1}
+    user_id_str = str(user_id)
+    if user_id_str not in SUBSCRIBERS_DB:
+        SUBSCRIBERS_DB[user_id_str] = {
+            "name": user_name,
+            "username": username,
+            "user_id": user_id_str,
+            "last_seen": time_str,
+            "msg_count": 1
+        }
     else:
-        SUBSCRIBERS_DB[user_id]["last_seen"] = time_str
-        SUBSCRIBERS_DB[user_id]["msg_count"] += 1
+        SUBSCRIBERS_DB[user_id_str]["name"] = user_name
+        SUBSCRIBERS_DB[user_id_str]["username"] = username
+        SUBSCRIBERS_DB[user_id_str]["last_seen"] = time_str
+        SUBSCRIBERS_DB[user_id_str]["msg_count"] += 1
+    save_subscribers_db()
 
 
 def search_web(query: str, max_results: int = 5) -> str:
