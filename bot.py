@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 from config import BOT_TOKEN, CHANNEL_ID, EXACT_ADMIN_ID, POST_TIMEZONE, validate_config
-from ai_handler import update_subscriber_context, SUBSCRIBERS_DB
+from ai_handler import update_subscriber_context, SUBSCRIBERS_DB, ask_admin_ai_copilot
 from scheduler import setup_scheduler, WEEKLY_STATS
 from content_generator import generate_daily_post
 from telegram_poster import send_post_to_channel
@@ -65,8 +65,8 @@ def get_multilingual_welcome_prompt() -> str:
 def get_admin_reply_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📊 Statistika"), KeyboardButton("🔄 Instant Post Yuborish")],
-        [KeyboardButton("✏️ Post Yaratish"), KeyboardButton("👥 Obunachilar Ro'yxati")],
-        [KeyboardButton("⚙️ Sozlamalar")]
+        [KeyboardButton("✏️ Post Yaratish"), KeyboardButton("🤖 AI Copilot (ChatGPT)")],
+        [KeyboardButton("👥 Obunachilar Ro'yxati"), KeyboardButton("⚙️ Sozlamalar")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -391,6 +391,37 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if user_text == "⚙️ Sozlamalar":
             await update.message.reply_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
+            return
+
+        if user_text == "🤖 AI Copilot (ChatGPT)":
+            context.user_data["admin_ai_mode"] = True
+            ai_welcome_text = (
+                "🤖 <b>AI Executive Copilot (ChatGPT Rejimi) Faol!</b>\n\n"
+                "Men bilan xuddi ChatGPT kabi bemalol muloqot qilishingiz mumkin:\n"
+                "• Dasturlash va texnik muammolarga ilg'or yechimlar olish\n"
+                "• Kanal va kontent uchun strategiyalar tuzish\n"
+                "• Live internetdan so'nggi yangilik va ma'lumotlarni qidirish (xabaringizda <i>'qidir'</i> yoki <i>'izla'</i> deb yozing)\n\n"
+                "<i>Savolingiz yoki topshirig'ingizni yozib yuboring! (Muloqotdan chiqish uchun menyudagi boshqa biror tugmani bosing)</i>"
+            )
+            await update.message.reply_text(ai_welcome_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
+            return
+
+        if user_text in ["📊 Statistika", "🔄 Instant Post Yuborish", "✏️ Post Yaratish", "👥 Obunachilar Ro'yxati", "⚙️ Sozlamalar"]:
+            context.user_data.pop("admin_ai_mode", None)
+
+        if context.user_data.get("admin_ai_mode", False):
+            wait_msg = await update.message.reply_text("⏳ <i>AI javob tayyorlamoqda...</i>", parse_mode="HTML")
+            history = context.user_data.get("ai_history", [])
+            ai_answer = ask_admin_ai_copilot(user_query=user_text, history=history)
+
+            history.append({"role": "user", "content": user_text})
+            history.append({"role": "assistant", "content": ai_answer})
+            context.user_data["ai_history"] = history[-8:]
+
+            try:
+                await wait_msg.edit_text(ai_answer, parse_mode="HTML")
+            except Exception:
+                await wait_msg.edit_text(ai_answer)
             return
 
         if context.user_data.pop("admin_awaiting_broadcast", False):
