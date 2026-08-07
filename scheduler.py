@@ -27,7 +27,7 @@ async def trigger_posting(slot: str = "morning"):
 async def trigger_friday_special():
     logger.info("Executing Friday Mubarak special post...")
     friday_html = (
-        "<b>Juma Ayyomingiz Muborak Bo'lsin! ✨</b>\n\n"
+        "<b>Juma Mubarak! ✨</b>\n\n"
         "<blockquote>قال رسول الله ﷺ:\n"
         "«أَكْثِرُوا عَلَيَّ مِنَ الصَّلاَةِ فِي يَوْمِ الْجُمُعَةِ وَلَيْلَةِ الْجُمُعَةِ فَمَنْ صَلَّى عَلَيَّ صَلاَةً صَلَّى اللَّهُ عَلَيْهِ عَشْرًا»\n\n"
         "\"Send abundant blessings upon me on Friday and Friday night, for whoever sends one blessing upon me, Allah sends ten blessings upon him.\"\n\n"
