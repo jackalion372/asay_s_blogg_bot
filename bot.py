@@ -32,39 +32,23 @@ def check_is_admin(user_id: str) -> bool:
 def get_language_selection_markup() -> InlineKeyboardMarkup:
     keyboard = [
         [
-            InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="lang_uz"),
+            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
             InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")
+            InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="lang_uz")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_subscriber_welcome_data(lang: str) -> tuple:
-    if lang == "ru":
-        text = (
-            "Ассаламу алейкум ва рахматуллахи ва баракатух! 🌙\n\n"
-            "Официальный бот канала @asay_s_blogg.\n\n"
-            "Вы можете оставить свое сообщение — наш администратор ответит вам в ближайшее время. 🤲"
-        )
-        button_text = "📩 Обратиться к админу"
-    elif lang == "en":
-        text = (
-            "Assalamu Alaikum wa Rahmatullah wa Barakatuh! 🌙\n\n"
-            "Official bot of @asay_s_blogg.\n\n"
-            "You can leave your message — our admin will reply to you shortly. 🤲"
-        )
-        button_text = "📩 Contact Admin"
-    else:  # Default Uzbek
-        text = (
-            "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n\n"
-            "@asay_s_blogg kanalining rasmiy boti.\n\n"
-            "Xabaringizni yozib qoldirishingiz mumkin — adminimiz tez orada javob beradi. 🤲"
-        )
-        button_text = "📩 Adminga Murojaat"
-
-    markup = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data="sub_contact_admin")]])
-    return text, markup
+def get_multilingual_welcome_prompt() -> str:
+    return (
+        "Assalamu Alaikum wa Rahmatullah wa Barakatuh! 🌙\n"
+        "Official bot of @asay_s_blogg. Please select your preferred language below:\n\n"
+        "Здравствуйте! 🌙\n"
+        "Официальный бот канала @asay_s_blogg. Пожалуйста, выберите ваш язык ниже:\n\n"
+        "Assalomu alaykum va rahmatullahi va barakatuh! 🌙\n"
+        "@asay_s_blogg kanalining rasmiy boti. Iltimos, muloqot tilini quyida tanlang:"
+    )
 
 
 def get_admin_dashboard_markup() -> InlineKeyboardMarkup:
@@ -94,8 +78,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_text = "👑 <b>Admin Paneli — @asay_s_blogg</b>"
         await update.message.reply_text(welcome_text, reply_markup=get_admin_dashboard_markup(), parse_mode="HTML")
     else:
-        lang_prompt = "🌐 <b>Muloqot tilini tanlang / Select language / Выберите язык:</b>"
-        await update.message.reply_text(lang_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+        welcome_prompt = get_multilingual_welcome_prompt()
+        await update.message.reply_text(welcome_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+
+
+async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    welcome_prompt = get_multilingual_welcome_prompt()
+    await update.message.reply_text(welcome_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
 
 
 async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -109,21 +98,27 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith("lang_"):
         selected_lang = data.replace("lang_", "")
         context.user_data["user_lang"] = selected_lang
-        welcome_text, markup = get_subscriber_welcome_data(selected_lang)
-        await query.edit_message_text(welcome_text, reply_markup=markup)
-        return
 
-    if data == "sub_contact_admin":
-        lang = context.user_data.get("user_lang", "uz")
-        if lang == "ru":
-            prompt = "📩 <b>Напишите ваше сообщение или вопрос для администрации канала:</b>"
-        elif lang == "en":
-            prompt = "📩 <b>Write your message or question for the channel administration:</b>"
+        if selected_lang == "en":
+            confirm_text = (
+                "✅ <b>Language set to English!</b>\n\n"
+                "You can now type and send your messages or questions directly to the channel administration anytime.\n"
+                "<i>(Tip: Send /language anytime to change settings)</i>"
+            )
+        elif selected_lang == "ru":
+            confirm_text = (
+                "✅ <b>Язык установлен на Русский!</b>\n\n"
+                "Теперь вы можете напрямую писать ваши сообщения администратору в любое время.\n"
+                "<i>(Совет: Напишите /language в любое время для смены языка)</i>"
+            )
         else:
-            prompt = "📩 <b>Kanal ma'muriyatiga yubormoqchi bo'lgan murojaat yoki savolingizni yozib yuboring:</b>"
+            confirm_text = (
+                "✅ <b>Muloqot tili O'zbekcha qilib tanlandi!</b>\n\n"
+                "Endi kanal ma'muriyatiga o'z murojaatingiz yoki savolingizni bevosita yozishingiz mumkin.\n"
+                "<i>(Eslatma: Tilni o'zgartirish uchun istalgan vaqtda /language buyrug'ini yuboring)</i>"
+            )
 
-        context.user_data["sub_awaiting_msg"] = True
-        await query.message.reply_text(prompt, parse_mode="HTML")
+        await query.edit_message_text(confirm_text, parse_mode="HTML")
         return
 
     if not is_admin:
@@ -267,12 +262,19 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text=user_text, time_str=time_str)
 
     if "user_lang" not in context.user_data:
-        lang_prompt = "🌐 <b>Muloqot tilini tanlang / Select language / Выберите язык:</b>"
-        await update.message.reply_text(lang_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+        welcome_prompt = get_multilingual_welcome_prompt()
+        await update.message.reply_text(welcome_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+        return
+
+    lang = context.user_data["user_lang"]
+    if lang == "en":
+        ack_text = "📩 <b>Your message has been sent to the admin. We will reply shortly! 🤲</b>"
+    elif lang == "ru":
+        ack_text = "📩 <b>Ваше сообщение отправлено администратору. Мы ответим вам в ближайшее время! 🤲</b>"
     else:
-        lang = context.user_data["user_lang"]
-        welcome_text, markup = get_subscriber_welcome_data(lang)
-        await update.message.reply_text(welcome_text, reply_markup=markup)
+        ack_text = "📩 <b>Xabaringiz adminga yetkazildi. Tez orada javob beramiz! 🤲</b>"
+
+    await update.message.reply_text(ack_text, parse_mode="HTML")
 
     try:
         keyboard = InlineKeyboardMarkup([
@@ -310,12 +312,19 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         update_subscriber_context(user_name=user_name, username=username, user_id=user_id, text="[Ovozli xabar yubordi]", time_str=datetime.now().strftime("%H:%M"))
 
         if "user_lang" not in context.user_data:
-            lang_prompt = "🌐 <b>Muloqot tilini tanlang / Select language / Выберите язык:</b>"
-            await update.message.reply_text(lang_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+            welcome_prompt = get_multilingual_welcome_prompt()
+            await update.message.reply_text(welcome_prompt, reply_markup=get_language_selection_markup(), parse_mode="HTML")
+            return
+
+        lang = context.user_data["user_lang"]
+        if lang == "en":
+            ack_text = "🎤 <b>Your voice message has been sent to the admin. 🤲</b>"
+        elif lang == "ru":
+            ack_text = "🎤 <b>Ваше голосовое сообщение отправлено администратору. 🤲</b>"
         else:
-            lang = context.user_data["user_lang"]
-            welcome_text, markup = get_subscriber_welcome_data(lang)
-            await update.message.reply_text(welcome_text, reply_markup=markup)
+            ack_text = "🎤 <b>Ovozli xabaringiz adminga yetkazildi. 🤲</b>"
+
+        await update.message.reply_text(ack_text, parse_mode="HTML")
 
         try:
             keyboard = InlineKeyboardMarkup([
@@ -363,6 +372,8 @@ def build_application() -> Application:
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", start_command))
+    application.add_handler(CommandHandler("language", language_command))
+    application.add_handler(CommandHandler("lang", language_command))
 
     application.add_handler(CallbackQueryHandler(handle_callback_queries))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
