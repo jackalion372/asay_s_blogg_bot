@@ -64,9 +64,9 @@ def get_multilingual_welcome_prompt() -> str:
 
 def get_admin_reply_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton("📊 Statistika"), KeyboardButton("🔄 Instant Post Yuborish")],
-        [KeyboardButton("✏️ Post Yaratish"), KeyboardButton("🤖 AI Copilot (ChatGPT)")],
-        [KeyboardButton("👥 Obunachilar Ro'yxati"), KeyboardButton("⚙️ Sozlamalar")]
+        [KeyboardButton("📊 Statistika"), KeyboardButton("📝 Post Yaratish va Yuborish")],
+        [KeyboardButton("🤖 AI Copilot (ChatGPT)"), KeyboardButton("👥 Obunachilar Ro'yxati")],
+        [KeyboardButton("⚙️ Sozlamalar")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -106,12 +106,13 @@ def get_admin_settings_text() -> str:
     )
 
 
-async def handle_preview_posting_or_direct(post_content: str, slot: str = "morning", bot_app=None):
+async def handle_preview_posting_or_direct(post_content: str, slot: str = "morning", attach_media: bool = True, bot_app=None):
     from telegram_poster import send_post_to_channel
 
     if ADMIN_SETTINGS.get("preview_mode", True):
         PENDING_PREVIEW_POST["content"] = post_content
         PENDING_PREVIEW_POST["slot"] = slot
+        PENDING_PREVIEW_POST["attach_media"] = attach_media
 
         preview_markup = InlineKeyboardMarkup([
             [
@@ -122,8 +123,9 @@ async def handle_preview_posting_or_direct(post_content: str, slot: str = "morni
                 InlineKeyboardButton("❌ Bekor Qilish", callback_data="cancel_preview_post")
             ]
         ])
+        media_str = "📹 Video Bilan" if attach_media else "📝 Videosiz"
         preview_msg_text = (
-            f"🔍 <b>[PREVIEW REJIM] Yangi Post Tayyorlandi:</b>\n\n"
+            f"🔍 <b>[PREVIEW REJIM] Yangi Post Tayyorlandi ({media_str}):</b>\n\n"
             f"{post_content}\n\n"
             f"───────────────────\n"
             f"<i>Kanalga joylash uchun quyidagi tugmani bosing:</i>"
@@ -138,7 +140,7 @@ async def handle_preview_posting_or_direct(post_content: str, slot: str = "morni
         except Exception as err:
             logger.error(f"Error sending preview message to admin: {err}")
     else:
-        success = await send_post_to_channel(post_content, attach_media=True)
+        success = await send_post_to_channel(post_content, attach_media=attach_media)
         if success:
             WEEKLY_STATS["posts_sent"] += 1
             logger.info(f"Daily {slot} post published directly to channel.")
@@ -291,25 +293,61 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
         return
 
+    if data == "hub_ai_post":
+        media_options = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📹 HD Video Bilan", callback_data="ai_post_video"),
+                InlineKeyboardButton("📝 Videosiz (Faqat Matn)", callback_data="ai_post_text")
+            ]
+        ])
+        await query.edit_message_text(
+            "🤖 <b>AI Post Generatsiyasi:</b>\n\nPost bilan birga HD Tabiat videosi biriktirilsinmi?",
+            reply_markup=media_options,
+            parse_mode="HTML"
+        )
+        return
+
+    if data == "hub_manual_post":
+        media_options = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📹 HD Video Bilan", callback_data="manual_post_video"),
+                InlineKeyboardButton("📝 Videosiz (Faqat Matn)", callback_data="manual_post_text")
+            ]
+        ])
+        await query.edit_message_text(
+            "✍️ <b>Qo'lda Post Yozish:</b>\n\nPostingizga HD Tabiat videosi biriktirilsinmi?",
+            reply_markup=media_options,
+            parse_mode="HTML"
+        )
+        return
+
+    if data == "ai_post_video":
+        await query.edit_message_text("⏳ AI HD Video bilan post generatsiya qilmoqda...")
+        post_content = generate_daily_post(slot="morning")
+        await handle_preview_posting_or_direct(post_content, slot="morning", attach_media=True, bot_app=context.application)
+        return
+
+    if data == "ai_post_text":
+        await query.edit_message_text("⏳ AI matnli post generatsiya qilmoqda...")
+        post_content = generate_daily_post(slot="morning")
+        await handle_preview_posting_or_direct(post_content, slot="morning", attach_media=False, bot_app=context.application)
+        return
+
+    if data == "manual_post_video":
+        context.user_data["admin_creating_post"] = True
+        context.user_data["post_with_video"] = True
+        await query.edit_message_text("📹 <b>HD Video bilan joylanadigan post matnini yuboring:</b>", parse_mode="HTML")
+        return
+
+    if data == "manual_post_text":
+        context.user_data["admin_creating_post"] = True
+        context.user_data["post_with_video"] = False
+        await query.edit_message_text("📝 <b>Faqat matnli post matnini yuboring:</b>", parse_mode="HTML")
+        return
+
     if data == "admin_stats":
         stats_text = f"📊 <b>Statistika:</b>\n\n👤 <b>Jami obunachi:</b> {len(SUBSCRIBERS_DB)}\n📝 <b>Bugungi post:</b> {WEEKLY_STATS['posts_sent']}"
         await query.message.reply_text(stats_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
-
-    elif data == "admin_create_post":
-        context.user_data["admin_creating_post"] = True
-        post_options_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📹 Video Bilan", callback_data="post_mode_video")],
-            [InlineKeyboardButton("📝 Videosiz", callback_data="post_mode_text")]
-        ])
-        await query.message.reply_text("✏️ <b>Post turini tanlang:</b>", reply_markup=post_options_keyboard, parse_mode="HTML")
-
-    elif data == "post_mode_video":
-        context.user_data["post_with_video"] = True
-        await query.message.reply_text("📹 Post matnini yuboring:")
-
-    elif data == "post_mode_text":
-        context.user_data["post_with_video"] = False
-        await query.message.reply_text("📝 Post matnini yuboring:")
 
     elif data == "admin_subscribers":
         sub_list_text = "👥 <b>Obunachilar:</b> " + (f"{len(SUBSCRIBERS_DB)} ta." if SUBSCRIBERS_DB else "Bo'sh.")
@@ -317,11 +355,6 @@ async def handle_callback_queries(update: Update, context: ContextTypes.DEFAULT_
 
     elif data == "admin_settings":
         await query.message.reply_text(get_admin_settings_text(), reply_markup=get_admin_settings_inline_keyboard(), parse_mode="HTML")
-
-    elif data == "admin_trigger_post":
-        await query.message.reply_text("⏳ Post yaratilmoqda...")
-        post_content = generate_daily_post(slot="morning")
-        await handle_preview_posting_or_direct(post_content, slot="morning", bot_app=context.application)
 
     elif data.startswith("reply_user_"):
         target_user_id = data.replace("reply_user_", "")
@@ -363,19 +396,22 @@ async def handle_user_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(stats_text, reply_markup=get_admin_reply_keyboard(), parse_mode="HTML")
             return
 
-        if user_text == "🔄 Instant Post Yuborish":
-            await update.message.reply_text("⏳ Post generatsiya qilinmoqda...")
-            post_content = generate_daily_post(slot="morning")
-            await handle_preview_posting_or_direct(post_content, slot="morning", bot_app=context.application)
-            return
-
-        if user_text == "✏️ Post Yaratish":
-            context.user_data["admin_creating_post"] = True
-            post_options_keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📹 Video Bilan", callback_data="post_mode_video")],
-                [InlineKeyboardButton("📝 Videosiz", callback_data="post_mode_text")]
+        if user_text in ["📝 Post Yaratish va Yuborish", "🔄 Instant Post Yuborish", "✏️ Post Yaratish"]:
+            context.user_data.pop("admin_ai_mode", None)
+            post_hub_keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🤖 AI Instant Post (Avtomatik)", callback_data="hub_ai_post")
+                ],
+                [
+                    InlineKeyboardButton("✍️ Qo'lda Matn Yozish", callback_data="hub_manual_post")
+                ]
             ])
-            await update.message.reply_text("✏️ <b>Post Yaratish Bo'limi:</b>\n\nPost matnini yuboring yoki media turini tanlang:", reply_markup=post_options_keyboard, parse_mode="HTML")
+            await update.message.reply_text(
+                "📝 <b>Post Yaratish va Yuborish Bo'limi:</b>\n\n"
+                "Qanday usulda post yaratmoqchisiz?",
+                reply_markup=post_hub_keyboard,
+                parse_mode="HTML"
+            )
             return
 
         if user_text == "👥 Obunachilar Ro'yxati":
